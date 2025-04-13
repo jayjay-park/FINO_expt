@@ -39,6 +39,7 @@ def get_model(model_type: str, model_settings: DictConfig) -> str:
             scale_factor=model_settings.scale_factor,
             learning_rate=model_settings.learning_rate,
             weight_decay=model_settings.weight_decay,
+            ckpt_path=model_settings.ckpt_path,
         )
         return model
     else:

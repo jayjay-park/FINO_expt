@@ -30,17 +30,17 @@ model_settings:
   dimension: 2
   latent_channels: 64
   loss_type: "JAC"  # "L2" / "JAC"
-  train_eigen_count: 8
+  train_eigen_count: 4
   reg_param: 0.5 # not used for L2
-  scale_factor: 5500.0 # not used for L2
-  learning_rate: 1e-4
+  scale_factor: 1.0 # not used for L2
+  learning_rate: 8e-4
   weight_decay: 1e-5
 
 training_settings:
   accum_steps: 1
-  num_epoch: 100
-  num_train: 128
-  num_test: 10
+  num_epoch: 150
+  num_train: 64
+  num_test: 8
   shuffle_train: false
   shuffle_test: false
   enable_checkpointing: true
@@ -51,7 +51,7 @@ training_settings:
 visualization_settings:
   save_to_disk: false
   log_to_neptune: true
-  num_plots: 2
+  num_plots: 3
   check_val_every_n_epoch: 1
   plot_interval: 1
 

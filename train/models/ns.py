@@ -25,6 +25,7 @@ class NSModel(pl.LightningModule):
         scale_factor: float = 5500.0, # TODO: Figure out why JJ scaled vJp by 5500.0
         learning_rate: float = 1e-3,
         weight_decay: float = 1e-5,
+        ckpt_path: str = None,
         **kwargs
     ):
         """
@@ -60,6 +61,19 @@ class NSModel(pl.LightningModule):
             latent_channels=latent_channels
         )
         
+        if ckpt_path is not None:
+            checkpoint = torch.load(ckpt_path)
+            model_state_dict = checkpoint['state_dict']
+
+            # Convert state_dict keys by removing the 'model.' prefix
+            corrected_state_dict = {}
+            for key, value in model_state_dict.items():
+                if key.startswith('model.'):
+                    corrected_state_dict[key[6:]] = value  # Remove 'model.' prefix
+
+            # Load the corrected state dict into the FNO model
+            self.model.load_state_dict(corrected_state_dict)
+        
         # Loss setup
         self.loss_type = loss_type
         self.reg_param = reg_param
@@ -81,7 +95,7 @@ class NSModel(pl.LightningModule):
     def compute_Jvp(self, x, v):
         Jvp = torch.zeros_like(v)
         for eig_idx in range(v.shape[-1]):
-            jvp_value, _ = torch.autograd.functional.jvp(self.forward, x, v[:, :, :, eig_idx].unsqueeze(0), create_graph=True)
+            _, jvp_value = torch.autograd.functional.jvp(self.forward, x, v[:, :, :, eig_idx].unsqueeze(0), create_graph=True)
             Jvp[:, :, :, eig_idx] = jvp_value.squeeze()
         x.requires_grad_(False)
         return Jvp

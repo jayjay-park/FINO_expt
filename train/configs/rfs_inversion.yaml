@@ -1,0 +1,25 @@
+base_config: ./ns_default.yaml
+
+experiment:
+  name: "n=64_e=4_m=FNO_s=RFS_l=JAC_INVERSION"
+  tags:
+    - "Inversion"
+    - "4 Eigenvectors"
+    - "64 samples"
+    - "FNO"
+    - "RFS"
+    - "JAC"
+
+model_settings:
+  loss_type: "JAC"
+  train_eigen_count: 4
+  ckpt_path: "/home/ubuntu/DeFINO/checkpoints/n=64_e=4_m=FNO_s=RFS_l=JAC_20250410_013156/n=64_e=4_m=FNO_s=RFS_l=JAC_epoch=025_val_rel_l2_loss=0.4925.ckpt"
+
+training_settings:
+  num_train: 1
+  num_test: 1
+  num_epoch: 1
+
+visualization_settings:
+  save_to_disk: true
+  log_to_neptune: false

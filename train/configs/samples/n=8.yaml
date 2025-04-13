@@ -1,9 +1,9 @@
 base_config: ../ns_default.yaml
 
 experiment:
-  name: "n=8_e=8_m=FNO_s=RFS_l=JAC"
+  name: "n=8_e=4_m=FNO_s=RFS_l=JAC"
   tags:
-    - "8 Eigenvectors"
+    - "4 Eigenvectors"
     - "8 samples"
     - "FNO"
     - "RFS"

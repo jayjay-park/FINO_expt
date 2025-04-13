@@ -1,13 +1,13 @@
 base_config: ../ns_default.yaml
 
 experiment:
-  name: "n=64_e=8_m=FNO_s=RFS_l=JAC"
+  name: "n=128_e=4_m=FNO_s=RFS_l=JAC"
   tags:
-    - "8 Eigenvectors"
-    - "64 samples"
+    - "4 Eigenvectors"
+    - "128 samples"
     - "FNO"
     - "RFS"
     - "JAC"
 
 training_settings:
-  num_train: 64
+  num_train: 128
