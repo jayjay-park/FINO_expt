@@ -36,6 +36,12 @@ def create_simulator(model_type, simulator_settings):
                                      simulator_settings['nu'],
                                      simulator_settings['nburn'],
                                      simulator_settings['nsteps'])
+    elif model_type == "DARCY":
+        from simulators.darcy import DarcySimulator
+        return DarcySimulator(
+            size=simulator_settings.size,
+            T=simulator_settings.T
+        )
     else:
         raise ValueError(f"Unsupported model type: {model_type}")
 
