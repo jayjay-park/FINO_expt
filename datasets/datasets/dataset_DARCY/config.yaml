@@ -1,0 +1,20 @@
+experiment:
+  name: Darcy Flow Generation
+  seed: 42
+  simulator_type: DARCY
+  reduced_model_type: FIM
+  output_dir: datasets/dataset_DARCY
+viz_settings:
+  plot_interval: 1
+  plot_vector_count: 3
+  plots_dir: datasets/dataset_DARCY/plots
+data_settings:
+  num_samples: 5
+  num_workers: 1
+  data_dir: datasets/dataset_DARCY/samples
+simulator_settings:
+  size: 128
+  T: 0.1
+reduced_model_settings:
+  eigen_value_fraction: 0.01
+  eigen_vector_count: 2

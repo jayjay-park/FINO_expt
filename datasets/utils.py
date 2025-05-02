@@ -1,6 +1,7 @@
 import os
 import h5py
 import torch
+import numpy as np
 
 from omegaconf import DictConfig, OmegaConf
 import matplotlib.pyplot as plt
@@ -45,19 +46,19 @@ def create_simulator(model_type, simulator_settings):
     else:
         raise ValueError(f"Unsupported model type: {model_type}")
 
-def create_reduced_model(reduced_model_type, reduced_model_settings):
+def create_reduced_model(reduced_model_type, reduced_model_settings, simulator_type):
     if reduced_model_type == "FIM":
         from reduced_orders.fim import FIMReducedModel
         return FIMReducedModel(reduced_model_settings['eigen_value_fraction'],
-                               reduced_model_settings['eigen_vector_count'])
+                               reduced_model_settings['eigen_vector_count'], simulator_type)
     elif reduced_model_type == "RAND":
         from reduced_orders.random import RandomReducedModel
         return RandomReducedModel(reduced_model_settings['eigen_value_fraction'],
-                                  reduced_model_settings['eigen_vector_count'])
+                                  reduced_model_settings['eigen_vector_count'], simulator_type)
     else:
         raise ValueError(f"Unsupported reduced model type: {reduced_model_type}")
 
-def generate_dataset(simulator, reduced_model, data_settings, viz_settings):
+def generate_dataset(simulator, reduced_model, data_settings, viz_settings, simulator_type):
     data_dir = data_settings['data_dir']
     plots_dir = viz_settings['plots_dir']
 
@@ -85,8 +86,40 @@ def generate_dataset(simulator, reduced_model, data_settings, viz_settings):
         for e in range(eigen_count):
             print(f"Eigenvector {e + 1} of {eigen_count}")
             vector = v[:, e].reshape(x.shape).to(x.device)
-            y, jvp_vector = torch.func.jvp(simulator, (x,), (vector,))
-            Jvp[:, e] = jvp_vector.reshape(simulator.range)
+            if simulator_type == "DARCY":
+                f = np.zeros(x.shape)
+                y = simulator.model.eval_fwd_op(f, x.cpu().numpy())
+                y = torch.tensor(y)
+                print("y", y.shape)
+
+                plt.figure(figsize=(5, 5))
+                plt.imshow(y, cmap='viridis')
+                plt.title('Output')
+                plt.savefig(f'Devito_output.png', bbox_inches='tight')
+                plt.close()
+
+                plt.figure(figsize=(5, 5))
+                plt.imshow(x.cpu().numpy(), cmap='viridis')
+                plt.title('Input')
+                plt.savefig(f'Devito_input.png', bbox_inches='tight')
+                plt.close()
+
+                plt.figure(figsize=(5, 5))
+                plt.imshow(vector.cpu().numpy(), cmap='viridis')
+                plt.title('v')
+                plt.savefig(f'Devito_v.png', bbox_inches='tight')
+                plt.close()
+
+                jvp_vector = simulator.model.compute_linearization(f, x.cpu().numpy(), vector.cpu().numpy())
+
+                plt.figure(figsize=(5, 5))
+                plt.imshow(jvp_vector, cmap='viridis')
+                plt.title(r'Ground Truth $Jv$')
+                plt.savefig(f'Devito_jvp.png', bbox_inches='tight')
+                plt.close()
+            else:
+                y, jvp_vector = torch.func.jvp(simulator, (x,), (vector,))
+            Jvp[:, e] = torch.tensor(jvp_vector).reshape(simulator.range)
 
         if i % plot_interval == 0:
             sample_dir = os.path.join(plots_dir, f"sample_{i}")
@@ -95,7 +128,6 @@ def generate_dataset(simulator, reduced_model, data_settings, viz_settings):
             for e in range(plot_vector_count):
                 plot_path = os.path.join(sample_dir, f"vector_{e}.png")
                 decay_path = os.path.join(sample_dir, f"decay_{e}.png")
-
                 simulator.plot_data(x, y, v[:, e], Jvp[:, e], plot_path, f"Sample {i} Eigenvector {e}")
                 reduced_model.plot_decay(s, decay_path, f"Sample {i} Eigenvector {e}")
         

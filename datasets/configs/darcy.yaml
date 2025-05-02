@@ -7,12 +7,12 @@ experiment:
 
 viz_settings:
   plot_interval: 1
-  plot_vector_count: 1
+  plot_vector_count: 3
   plots_dir: "datasets/dataset_DARCY/plots"
 
 data_settings:
-  num_samples: 1
-  num_workers: 2
+  num_samples: 5
+  num_workers: 1
   data_dir: "datasets/dataset_DARCY/samples"
 
 simulator_settings:
