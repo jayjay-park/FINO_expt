@@ -50,7 +50,10 @@ def create_reduced_model(reduced_model_type, reduced_model_settings, simulator_t
     if reduced_model_type == "FIM":
         from reduced_orders.fim import FIMReducedModel
         return FIMReducedModel(reduced_model_settings['eigen_value_fraction'],
-                               reduced_model_settings['eigen_vector_count'], simulator_type)
+                               reduced_model_settings['eigen_vector_count'], 
+                               simulator_type,
+                               reduced_model_settings['noise_std'],
+                               reduced_model_settings['probe_size'])
     elif reduced_model_type == "RAND":
         from reduced_orders.random import RandomReducedModel
         return RandomReducedModel(reduced_model_settings['eigen_value_fraction'],
@@ -66,11 +69,14 @@ def generate_dataset(simulator, reduced_model, data_settings, viz_settings, simu
     os.makedirs(plots_dir, exist_ok=True)
 
     num_samples = data_settings['num_samples']
+    num_subsamples = data_settings['num_subsamples']
     plot_interval = viz_settings['plot_interval']
     plot_vector_count = viz_settings['plot_vector_count']
     
     # Get the number of workers from settings or default to CPU count - 1
     num_workers = data_settings.get('num_workers', max(1, os.cpu_count() - 1))
+
+    
     
     # Define a worker function to process each sample
     def process_sample(i):
@@ -90,33 +96,32 @@ def generate_dataset(simulator, reduced_model, data_settings, viz_settings, simu
                 f = np.zeros(x.shape)
                 y = simulator.model.eval_fwd_op(f, x.cpu().numpy())
                 y = torch.tensor(y)
-                print("y", y.shape)
 
-                plt.figure(figsize=(5, 5))
-                plt.imshow(y, cmap='viridis')
-                plt.title('Output')
-                plt.savefig(f'Devito_output.png', bbox_inches='tight')
-                plt.close()
+                # plt.figure(figsize=(5, 5))
+                # plt.imshow(y, cmap='viridis')
+                # plt.title('Output')
+                # plt.savefig(f'Devito_output_utils.png', bbox_inches='tight')
+                # plt.close()
 
-                plt.figure(figsize=(5, 5))
-                plt.imshow(x.cpu().numpy(), cmap='viridis')
-                plt.title('Input')
-                plt.savefig(f'Devito_input.png', bbox_inches='tight')
-                plt.close()
+                # plt.figure(figsize=(5, 5))
+                # plt.imshow(x.cpu().numpy(), cmap='viridis')
+                # plt.title('Input')
+                # plt.savefig(f'Devito_input_utils.png', bbox_inches='tight')
+                # plt.close()
 
-                plt.figure(figsize=(5, 5))
-                plt.imshow(vector.cpu().numpy(), cmap='viridis')
-                plt.title('v')
-                plt.savefig(f'Devito_v.png', bbox_inches='tight')
-                plt.close()
+                # plt.figure(figsize=(5, 5))
+                # plt.imshow(vector.cpu().numpy(), cmap='viridis')
+                # plt.title('v')
+                # plt.savefig(f'Devito_v_utils.png', bbox_inches='tight')
+                # plt.close()
 
                 jvp_vector = simulator.model.compute_linearization(f, x.cpu().numpy(), vector.cpu().numpy())
 
-                plt.figure(figsize=(5, 5))
-                plt.imshow(jvp_vector, cmap='viridis')
-                plt.title(r'Ground Truth $Jv$')
-                plt.savefig(f'Devito_jvp.png', bbox_inches='tight')
-                plt.close()
+                # plt.figure(figsize=(5, 5))
+                # plt.imshow(jvp_vector, cmap='viridis')
+                # plt.title(r'Ground Truth $Jv$')
+                # plt.savefig(f'Devito_jvp_utils.png', bbox_inches='tight')
+                # plt.close()
             else:
                 y, jvp_vector = torch.func.jvp(simulator, (x,), (vector,))
             Jvp[:, e] = torch.tensor(jvp_vector).reshape(simulator.range)
@@ -126,10 +131,11 @@ def generate_dataset(simulator, reduced_model, data_settings, viz_settings, simu
             os.makedirs(sample_dir, exist_ok=True)
 
             for e in range(plot_vector_count):
+                print(e, plot_vector_count)
                 plot_path = os.path.join(sample_dir, f"vector_{e}.png")
                 decay_path = os.path.join(sample_dir, f"decay_{e}.png")
                 simulator.plot_data(x, y, v[:, e], Jvp[:, e], plot_path, f"Sample {i} Eigenvector {e}")
-                reduced_model.plot_decay(s, decay_path, f"Sample {i} Eigenvector {e}")
+                reduced_model.plot_decay(s.detach().cpu(), decay_path, f"Sample {i} Eigenvector {e}")
         
         sample_path = os.path.join(data_dir, f"sample_{i}.h5")
         with h5py.File(sample_path, "w") as f:

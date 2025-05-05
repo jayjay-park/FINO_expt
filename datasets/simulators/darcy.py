@@ -22,6 +22,7 @@ class DarcySimulator(Simulator):
         return torch.tensor(u_samples[0], dtype=self.dtype, device=self.device)
 
     def forward(self, u):
+        print("We don't want to call forward")
         # Step 3: Zero forcing term
         f = torch.zeros((self.size, self.size), dtype=self.dtype, device=self.device)
 
@@ -60,7 +61,7 @@ class DarcySimulator(Simulator):
         jvp_data = prepare_field(Jvp)
         
         # Create figure and subplots
-        fig, axs = plt.subplots(4, 1, figsize=(5, 20))
+        fig, axs = plt.subplots(4, 1, figsize=(5, 18))
         fig.suptitle(title)
         
         # Data to plot with corresponding titles
@@ -73,9 +74,14 @@ class DarcySimulator(Simulator):
         
         # Plot all data
         for row, data, titles in plot_data:
-            axs[row].imshow(data['vorticity'], cmap='jet')
+            if row > 1:
+                cmap = 'BuPu'
+            else:
+                cmap = 'viridis'
+            im = axs[row].imshow(data['vorticity'], cmap=cmap)
+            fig.colorbar(im, ax=axs[row], fraction=0.046) 
             axs[row].set_title(titles[0])
-        
+        plt.tight_layout()
         plt.savefig(file_path)
         plt.close()
 
