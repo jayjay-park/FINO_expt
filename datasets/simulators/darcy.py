@@ -1,9 +1,16 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from groundwater.utils import GaussianRandomField, plot_fields
-from groundwater.devito_op import GroundwaterEquation
 from .base import Simulator  # Assuming base class defines interface
+import os, sys
+# add project root (one level up) to sys.path
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from groundwater.groundwater.utils import GaussianRandomField, plot_fields
+from groundwater.groundwater.devito_op import GroundwaterEquation
+
 
 class DarcySimulator(Simulator):
     def __init__(self, size=256, T=1.0, dtype=torch.float32):
@@ -16,8 +23,13 @@ class DarcySimulator(Simulator):
 
     def sample(self):
         # Step 1: Sample from Gaussian Random Field
-        grf = GaussianRandomField(2, self.size, alpha=2, tau=4)
+        # grf = GaussianRandomField(2, self.size, alpha=35, tau=0.001, sigma=10000.0) #--- prev version
+        grf = GaussianRandomField(2, self.size, alpha=2, tau=3)
         u_samples = grf.sample(1)
+
+        # # Sample random fields
+        u_samples[u_samples>=0] = 0.9
+        u_samples[u_samples<0] = 0.1
         
         return torch.tensor(u_samples[0], dtype=self.dtype, device=self.device)
 
@@ -77,8 +89,12 @@ class DarcySimulator(Simulator):
             if row > 1:
                 cmap = 'BuPu'
             else:
-                cmap = 'viridis'
+                cmap = 'jet' #'viridis'
             im = axs[row].imshow(data['vorticity'], cmap=cmap)
+            if row == 1:
+                # choose 10 levels between min and max of the field
+                levels = np.linspace(data['vorticity'].min(), data['vorticity'].max(), 10)
+                axs[row].contour(data['vorticity'], levels=levels, colors='coral', linewidths=2.0)
             fig.colorbar(im, ax=axs[row], fraction=0.046) 
             axs[row].set_title(titles[0])
         plt.tight_layout()

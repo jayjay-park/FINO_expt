@@ -14,145 +14,105 @@ class FIMReducedModel(ReducedModel):
         self.simulator_type = simulator_type
         self.noise_std = noise_std
 
-    # def get_direction(self, simulator, x):
-    #     """
-    #     Compute averaged score matrix Q over a batch of inputs x
-    #     via column‐wise jittered subsampling.
-    #     """
-    #     with self.thread_lock:
-    #         # x: [num_sub, p] or [num_sub, d, d]
-    #         num_sub = x.shape[0]
-    #         p = simulator.domain
-    #         d = int(np.sqrt(p))
-    #         r = self.eigen_vector_count + 5
-
-    #         # 1) jittered sample fixed columns L from [0..d-1]
-    #         m = self.probe_size
-    #         bins = torch.linspace(0, d, m+1, device=x.device)
-    #         L = []
-    #         for i in range(m):
-    #             start, end = int(bins[i].item()), int(bins[i+1].item())
-    #             L.append(torch.randint(start, max(start+1,end), (), device=x.device).item())
-
-    #         # accumulator for Q
-    #         Q_acc = torch.zeros(p, r, device=x.device)
-
-    #         # loop over each sample in the batch
-    #         for b in range(num_sub):
-    #             xb = x[b]
-    #             # forward + pullback setup for this sample
-    #             if self.simulator_type != "DARCY":
-    #                 yb, vjp_func = torch.func.vjp(simulator, xb)
-    #             else:
-    #                 xb_np = xb.cpu().numpy()
-    #                 f = np.zeros_like(xb_np)
-    #                 p_fwd = simulator.model.eval_fwd_op(f, xb_np, return_array=False)
-
-    #             Qb = torch.zeros(p, r, device=x.device)
-    #             # do r probes on this one input
-    #             for j in range(r):
-    #                 print("rank ", j)
-    #                 # noise per column
-    #                 eps = torch.randn(d, m, device=x.device) * self.noise_std
-    #                 weights = eps / (self.noise_std**2)  # shape [d,m]
-
-    #                 # build 2D probe and flatten
-    #                 v2d = torch.zeros((d, d), device=x.device)
-    #                 v2d[:, L] = weights
-    #                 vj = v2d.reshape(-1)
-
-    #                 # compute score
-    #                 if self.simulator_type != "DARCY":
-    #                     qj = vjp_func(vj)[0]
-    #                 else:
-    #                     probe_vec = v2d.cpu().numpy()
-    #                     grad = simulator.model.compute_gradient(xb_np, probe_vec, p_fwd)
-    #                     qj = torch.tensor(grad, device=x.device).reshape(-1)
-
-    #                 Qb[:, j] = qj
-
-    #             Q_acc += Qb
-
-    #         # average over all subsamples
-    #         Q_avg = Q_acc / float(num_sub)
-
-    #         return Q_avg, L
-
     def get_direction(self, simulator, x):
-        """
-        Compute top-FIM modes via column-wise subsampling with a fixed set of columns,
-        and shade those columns on the plotted mode.
-        """
         with self.thread_lock:
-            p = simulator.domain
-            d = int(np.sqrt(p))
-            r = self.eigen_vector_count
-            m = self.probe_size
-
-            # 1) sample fixed column‐subset L from [0..d-1]
-            # L = torch.randperm(d, device=x.device)[:m].tolist()  # columns indices
-            # no more flatten-based coords needed
-            # 1) jittered sampling of columns
-            bins = torch.linspace(0, d, m+1, device=x.device)
-            L = []
-            for i in range(m):
-                s, e = int(bins[i].item()), int(bins[i+1].item())
-                L.append(torch.randint(s, max(s+1,e), (1,), device=x.device).item())
-            # proceed with v2d[:, L] = weights …
-
-
-            # forward + pullback setup
+            eigen_count = self.eigen_count(simulator)
+            eigenvectors = torch.randn((simulator.domain, eigen_count))
             if self.simulator_type != "DARCY":
                 y, vjp_func = torch.func.vjp(simulator, x)
-            else:
-                x_np = x.cpu().numpy()
-                f = np.zeros_like(x_np)
-                p_fwd = simulator.model.eval_fwd_op(f, x_np, return_array=False)
+            
+            Z = torch.randn((simulator.range, eigen_count)).to(x.device)
+            B, R = torch.linalg.qr(Z)
 
-            Q = torch.zeros(p, r, device=x.device)
+            if self.simulator_type == "DARCY":
+                x = x.cpu().numpy()
+                # Forcing term (e.g., external influences) is initialized as zeros
+                f = np.zeros(x.shape)
+                p_fwd = simulator.model.eval_fwd_op(f, x, return_array=False)
+            
+            Q = torch.zeros((simulator.domain, eigen_count))
+            for j in range(eigen_count):
+                print(f"Computing FIM Eigenvector {j + 1} of {eigen_count}")
 
-            for j in range(r):
-                # 2) noise per column
-                eps = torch.randn(d, m, device=x.device) * self.noise_std  # one per cell in each column
-                weights = eps / (self.noise_std**2)                          # shape [d,m]
+                if self.simulator_type == "DARCY":
+                    probe_vector = B[:, j].reshape(x.shape).cpu().numpy()
+                    gradient = simulator.model.compute_gradient(x, probe_vector, p_fwd)
+                    Q[:, j] = torch.tensor(gradient).reshape((simulator.domain,))
 
-                # 3) build 2D probe v2d and flatten
-                v2d = torch.zeros((d, d), device=x.device)
-                v2d[:, L] = weights  # assign entire columns
-                v_j = v2d.reshape(-1)  
+                    plt.figure(figsize=(5, 5))
+                    plt.imshow(gradient, cmap='viridis')
+                    plt.title(r'$J^Tv$')
+                    plt.colorbar()
+                    plt.savefig(f'Devito_vjp={j}.png', bbox_inches='tight')
+                    plt.close()
 
-                # 4) compute score q_j
-                if self.simulator_type != "DARCY":
-                    q_j = vjp_func(v_j)[0]
                 else:
-                    probe_vec = v2d.cpu().numpy()
-                    grad = simulator.model.compute_gradient(x_np, probe_vec, p_fwd)
-                    q_j = torch.tensor(grad, device=x.device).reshape(-1)
+                    probe_vector = B[:, j].reshape(y.shape)
+                    Q[:, j] = vjp_func(probe_vector)[0].reshape((simulator.domain,))
 
-                Q[:, j] = q_j
-
-            # 5) SVD
-            U, S, Vh = torch.linalg.svd(Q, full_matrices=False)
-
-            # 6) plot leading mode and shade selected columns
-            mode1 = U[:, 0].reshape(d, d).cpu().numpy()
+            U, S, V = torch.linalg.svd(Q)
             plt.figure(figsize=(5, 5))
-            plt.imshow(mode1, cmap='BuPu', origin='lower')
-            plt.title("Leading FIM Mode (fixed columns)")
-            plt.colorbar(fraction=0.046)
-
-            # shade each selected column
-            for col in L:
-                plt.axvspan(col - 0.5, col + 0.5, color='gray', alpha=0.3)
-
-            plt.savefig('FIM_mode1_shaded_columns.png', bbox_inches='tight')
+            plt.imshow(U[:, 0].reshape(128,128), cmap='viridis')
+            plt.title(r'$U,S,V^T = J^T\Sigma^{-1}J$')
+            plt.colorbar()
+            plt.savefig(f'Devito_eig_1.png', bbox_inches='tight')
             plt.close()
+            eigenvectors = U[:, :eigen_count]
+            
+            return eigenvectors, S
 
-            eigvecs = U[:, :r]
-            eigvals  = S[:r]**2
-            return eigvecs, eigvals
 
+    def compute_score_matrix(self, simulator, x, L):
+        """
+        Matrix‑free point‑wise jittered subsampled FIM → Qb [p×r].
+        simulator:     your forward function
+        x:             current input state, shape [d, d]
+        L:             list of m flat indices in [0, p)
+        """
+        p = simulator.domain              # = d*d
+        d = int(np.sqrt(p))
+        r = self.eigen_vector_count + 5
+        m = self.probe_size               # must equal len(L)
 
+        # prepare pullback
+        if self.simulator_type != "DARCY":
+            _, vjp_func = torch.func.vjp(simulator, x)
+        else:
+            x_np = x
+            f = np.zeros_like(x_np)
+            # precompute forward evaluation once
+            p_fwd = simulator.model.eval_fwd_op(f, x_np, simulator.T, return_array=False)
+
+        Qb = torch.zeros(p, r, device='cuda')
+
+        for j in range(r):
+            print("r", j)
+            # 1) one noise per sampled point
+            eps     = torch.randn(m, device='cuda') * self.noise_std   # [m]
+            weights = eps / (self.noise_std**2)                          # [m]
+
+            # 2) scatter into a d×d probe array
+            v2d = torch.zeros((d, d), device='cuda')
+            for k, idx in enumerate(L):
+                i = idx // d
+                jcol = idx % d
+                v2d[i, jcol] = weights[k]
+
+            v_j = v2d.reshape(-1)   # [p]
+
+            # 3) pull back to get the jth score vector
+            if self.simulator_type != "DARCY":
+                q_j = vjp_func(v_j)[0]                        # [p]
+            else:
+                probe_np = v2d.cpu().numpy()
+                grad = simulator.model.compute_gradient(
+                        x_np, probe_np, p_fwd
+                    )                                     # [d,d]
+                q_j = torch.tensor(grad, device='cuda').reshape(-1)
+
+            Qb[:, j] = q_j
+
+        return Qb
     
     def plot_decay(self, s, path, title):
         plt.plot(s)
