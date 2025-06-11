@@ -22,7 +22,7 @@ def get_model(model_type: str, model_settings: DictConfig) -> str:
         from models.gcs import GCSModel
         model = GCSModel() # Non Functional Model. Reimplement call if needed. (Removed due to vJp -> Jvp)
         return model
-    elif model_type == "NS":
+    elif model_type == "NS" or model_type == "DARCY":
         from models.ns import NSModel
         model = NSModel(
             in_channels=model_settings.in_channels,
@@ -39,7 +39,7 @@ def get_model(model_type: str, model_settings: DictConfig) -> str:
             scale_factor=model_settings.scale_factor,
             learning_rate=model_settings.learning_rate,
             weight_decay=model_settings.weight_decay,
-            ckpt_path=model_settings.ckpt_path,
+            # ckpt_path=model_settings.ckpt_path,
         )
         return model
     else:
@@ -51,6 +51,15 @@ def get_dataset(dataset_type: str, data_settings: DictConfig) -> str:
         data_loader = GCSDataLoader() # Non Functional Data Loader. Reimplement call if needed. (Removed due to vJp -> Jvp)
         return data_loader
     elif dataset_type == "NS":
+        from datasets.ns import NSDataLoader
+        data_loader = NSDataLoader(
+            nx=data_settings.nx,
+            ny=data_settings.ny,
+            eigen_count=data_settings.eigen_count,
+            sample_directories=data_settings.sample_directories,
+            batch_size=data_settings.batch_size,
+        )
+    elif dataset_type == "DARCY":
         from datasets.ns import NSDataLoader
         data_loader = NSDataLoader(
             nx=data_settings.nx,

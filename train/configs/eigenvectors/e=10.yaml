@@ -1,0 +1,16 @@
+base_config: ../darcy_default.yaml
+
+experiment:
+  name: "n=128_e=10_m=FNO_s=RFS_l=JAC"
+  tags:
+    - "10 Eigenvector"
+    - "128 samples"
+    - "FNO"
+    - "RFS"
+    - "JAC"
+
+data_settings:
+  eigen_count: 10
+
+model_settings:
+  train_eigen_count: 10

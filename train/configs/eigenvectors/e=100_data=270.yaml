@@ -1,0 +1,30 @@
+base_config: ../darcy_default.yaml
+
+experiment:
+  name: "n=270_e=100_m=FNO_s=RFS_l=JAC"
+  tags:
+    - "128 Eigenvector"
+    - "270 samples"
+    - "FNO"
+    - "RFS"
+    - "JAC"
+
+
+training_settings:
+  accum_steps: 1
+  num_epoch: 300
+  num_train: 270
+  num_test: 30
+  num_samples: 270
+  shuffle_train: true
+  shuffle_test: false
+  enable_checkpointing: true
+  log_checkpoint: false # log to neptune (cloud)
+  checkpoint_interval: 1
+  save_top_k: -1
+
+data_settings:
+  eigen_count: 128
+
+model_settings:
+  train_eigen_count: 128

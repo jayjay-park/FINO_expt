@@ -1,0 +1,61 @@
+experiment:
+  name: "Darcy_training"
+  log_dir: "logs"
+  output_dir: "output"
+  checkpoint_dir: "checkpoints"
+  model_type: "DARCY"
+  dataset_type: "DARCY"
+  seed: 42
+  debug: false
+  tags:
+    - "DARCY"
+    - "JAC"
+
+data_settings:
+  nx: 128
+  ny: 128
+  batch_size: 1
+  eigen_count: 100
+  sample_directories:
+    - "../datasets/datasets/dataset_DARCY"
+    - "../datasets/datasets/dataset_DARCY2"
+
+model_settings:
+  in_channels: 1
+  out_channels: 1
+  decoder_layer_size: 256
+  num_fno_layers: 4
+  num_fno_modes: [32, 32]
+  padding: 0
+  dimension: 2
+  latent_channels: 64
+  loss_type: "JAC"  # "L2" / "JAC"
+  train_eigen_count: 100
+  reg_param: 0.5 # not used for L2
+  scale_factor: 1.0 # not used for L2
+  learning_rate: 8e-4
+  weight_decay: 1e-5
+
+training_settings:
+  accum_steps: 1
+  num_epoch: 250
+  num_train: 120
+  num_test: 10
+  num_samples: 120
+  shuffle_train: true
+  shuffle_test: false
+  enable_checkpointing: true
+  log_checkpoint: false # log to neptune (cloud)
+  checkpoint_interval: 1
+  save_top_k: -1
+
+visualization_settings:
+  save_to_disk: false
+  log_to_neptune: true
+  num_plots: 3
+  check_val_every_n_epoch: 1
+  plot_interval: 1
+
+neptune:
+  enabled: true
+  project: "slim-gatech/DeFINO"

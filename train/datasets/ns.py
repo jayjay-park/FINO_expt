@@ -27,6 +27,8 @@ class CustomDataset(torch.utils.data.Dataset):
             y = f['y'][:].astype(np.float32)
             v = f['v'][:].astype(np.float32)
             Jvp = f['Jvp'][:].astype(np.float32)
+            L = f['L'][:].astype(np.float32)
+        # print("L", L)
             
         # extract the batch and sample number from the path
         # ex path: /home/ubuntu/DeFINO/datasets/dataset_NS_batch2/samples/sample_6.h5
@@ -40,6 +42,7 @@ class CustomDataset(torch.utils.data.Dataset):
             'y': y.reshape(1, self.nx, self.ny),
             'Jvp': Jvp.reshape(self.nx, self.ny, -1)[:, :, :self.eigen_count],
             'v': v.reshape(self.nx, self.ny, -1)[:, :, :self.eigen_count],
+            'L': L,
             'sample_path': self.sample_paths[idx],
             'idx': id_str
         }
