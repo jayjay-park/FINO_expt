@@ -25,13 +25,27 @@
 /test/
 /plot/
 /test_result/
+datasets/Averaged_Decay_over_2_samples.png
+datasets/Observation_O.png
+train/rng_state_devito.pkl
+train/obs_*
+train/.nfs*
 
 # metadata
-/output/
-/logs/
-/checkpoints/
-/.neptune/
+train/output/
+train/logs/
+train/outs
+train/checkpoints/
+train/.neptune/
 __pycache__/
 .env
-/datasets/dataset_*
+datasets/datasets/
+datasets/groundwater/
+train/metrics_*
+train/loss_*
+train/inversion_result_*
+train/inversion_history_*
 Miniconda3-latest-Linux-x86_64.sh
+train/*.h5
+train/*.sbatch
+train/*.png
