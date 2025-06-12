@@ -123,7 +123,20 @@ def generate_dataset(simulator, reduced_model, data_settings, viz_settings, simu
     os.makedirs(plots_dir, exist_ok=True)
 
     # path for caching modes
-    svd_cache = os.path.join(data_dir, 'svd_modes.h5')
+    svd_cache = 'datasets/svd_modes.h5' #os.path.join('/datasets/', 'svd_modes.h5')
+
+    # --- build L once (block-wise jitter) ---
+    d = int(np.sqrt(simulator.domain))
+    m = reduced_model.probe_size
+    m_x = int(np.sqrt(m)); m_y = m // m_x
+    bx, by = d // m_x, d // m_y
+
+    L = []
+    for px in range(m_x):
+        for qy in range(m_y):
+            i = torch.randint(px*bx, min((px+1)*bx, d), (), device='cpu').item()
+            j = torch.randint(qy*by, min((qy+1)*by, d), (), device='cpu').item()
+            L.append(i * d + j)
 
     # ────────────────────────────────────────────────────────────────────────────
     # 0) LOAD OR COMPUTE SVD MODES
@@ -136,25 +149,12 @@ def generate_dataset(simulator, reduced_model, data_settings, viz_settings, simu
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         v = torch.from_numpy(v_np).to(device)
         s = torch.from_numpy(s_np).to(device)
-        print(f"Loaded cached SVD modes (shape v={v.shape}, s={s.shape})")
+        print(f"Loaded cached SVD modes (shape v={v.shape}, s={s.shape})", flush=True)
     else:
-        # --- build L once (block-wise jitter) ---
-        d = int(np.sqrt(simulator.domain))
-        m = reduced_model.probe_size
-        m_x = int(np.sqrt(m)); m_y = m // m_x
-        bx, by = d // m_x, d // m_y
-
-        L = []
-        for px in range(m_x):
-            for qy in range(m_y):
-                i = torch.randint(px*bx, min((px+1)*bx, d), (), device='cpu').item()
-                j = torch.randint(qy*by, min((qy+1)*by, d), (), device='cpu').item()
-                L.append(i * d + j)
-
         # --- collect all score-matrices Q_b ---
         Q_list = []
         for b in range(num_subsamples):
-            print(f"Computing Q_b for subsample {b+1}/{num_subsamples}")
+            print(f"Computing Q_b for subsample {b+1}/{num_subsamples}", flush=True)
             x_b = simulator.sample().detach().cpu().numpy()
             Qb  = reduced_model.compute_score_matrix(simulator, x_b, L)  # [p, r]
             Q_list.append(Qb)
@@ -184,7 +184,7 @@ def generate_dataset(simulator, reduced_model, data_settings, viz_settings, simu
     # 1) Now generate each sample (and save x,y,v,Jvp,L per sample)
     # ────────────────────────────────────────────────────────────────────────────
     def process_sample(i):
-        print(f"Generating sample {i + 1}/{num_samples}")
+        print(f"Generating sample {i + 1}/{num_samples}", flush=True)
         x = simulator.sample()
         device = x.device
         p = simulator.range
@@ -271,6 +271,7 @@ def generate_dataset(simulator, reduced_model, data_settings, viz_settings, simu
         plot_sampling_on_field_simple_blocks(y.cpu().numpy(), L, m_x, m_y)
         sample_path = os.path.join(data_dir, f"sample_{i}.h5")
         with h5py.File(sample_path, "w") as f:
+            print("Creating h5 file", {i})
             f.create_dataset("x",   data=x.cpu().numpy())
             f.create_dataset("y",   data=y.cpu().numpy())
             f.create_dataset("v",   data=v.cpu().numpy())
