@@ -170,13 +170,13 @@ def plot_inversion_result(x0, x, true_y, y, x_pred, loss_type, index, x_idx, y_i
 
     plt.tight_layout()
     if loss_type == "JAC" and top_subsampling == False:
-        plt.savefig(f"inversion_result_{loss_type}_{num_vec}_{initial_guess}/inversion_result_{loss_type}_{index}_{iter}.png")
+        plt.savefig(f"inversion_result_{loss_type}_{num_vec}_{initial_guess}_NGD/inversion_result_{loss_type}_{index}_{iter}.png")
     elif loss_type == "JAC" and top_subsampling == True:
-        plt.savefig(f"inversion_result_{loss_type}_{num_vec}_{initial_guess}_top/inversion_result_{loss_type}_{index}_{iter}.png")
+        plt.savefig(f"inversion_result_{loss_type}_{num_vec}_{initial_guess}_top_NGD/inversion_result_{loss_type}_{index}_{iter}.png")
     elif loss_type != "JAC" and top_subsampling == False:
-        plt.savefig(f"inversion_result_{loss_type}_{initial_guess}/inversion_result_{loss_type}_{index}_{iter}.png")
+        plt.savefig(f"inversion_result_{loss_type}_{initial_guess}_NGD/inversion_result_{loss_type}_{index}_{iter}.png")
     else:
-        plt.savefig(f"inversion_result_{loss_type}_{initial_guess}_top/inversion_result_{loss_type}_{index}_{iter}.png")
+        plt.savefig(f"inversion_result_{loss_type}_{initial_guess}_top_NGD/inversion_result_{loss_type}_{index}_{iter}.png")
     plt.close(fig)
 
 def project_to_2d_plane(posterior_set, center=None):
@@ -316,7 +316,7 @@ def fisher_approx_vjp_func(model, x0, i, j, sigma, rank=100):
         return out[0, 0, i, j]  # shape: [m]
 
     if loss_type == "Devito":
-        x_flat = x0.detach().clone().requires_grad_(True)
+        x_flat = x0.detach().clone().requires_grad_(True)                         
     else:
         x_flat = x0.detach().clone().requires_grad_(True).flatten()
     # Step 3: Compute VJPs for each v_k ∈ R^m
@@ -326,9 +326,6 @@ def fisher_approx_vjp_func(model, x0, i, j, sigma, rank=100):
         if loss_type == "Devito":
             p_fwd = groundwater_model.eval_fwd_op(forcing_term, x_flat.detach().cpu(), return_array=False) #[..., i, j]
             probe_np = np.zeros((128,128))
-            # print("v_k", v_k.shape)
-            # print("i", i)
-            # print("j", j)
             probe_np[i, j] = v_k.detach().cpu().numpy()  # inject probe direction only at observed points
             probe_np = v_k.detach().cpu().numpy()  # inject probe direction only at observed points
             grad = groundwater_model.compute_gradient(
@@ -521,19 +518,19 @@ def least_squares_posterior_estimation_fisher(model, input_data, true_data, lear
             plt.colorbar(label='Gradient Value', shrink=0.8)
             plt.title('Gradient w.r.t. Input x0')
             if loss_type == "JAC":
-                plt.savefig(f'inversion_result_{loss_type}_{num_vec}_{initial_guess}/iter={batch_num}_gradient_{iteration}.png')
-                plot_single(x0.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{num_vec}_{initial_guess}/iter={batch_num}_inversion_{iteration}.png')
-                plot_single(output.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{num_vec}_{initial_guess}/iter={batch_num}_inversion_{iteration}_output.png')
+                plt.savefig(f'inversion_result_{loss_type}_{num_vec}_{initial_guess}_NGD/iter={batch_num}_gradient_{iteration}.png')
+                plot_single(x0.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{num_vec}_{initial_guess}_NGD/iter={batch_num}_inversion_{iteration}.png')
+                plot_single(output.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{num_vec}_{initial_guess}_NGD/iter={batch_num}_inversion_{iteration}_output.png')
                 plot_inversion_result(zero_X, x, y, output.detach().cpu().squeeze(), x0.clone().detach().cpu(), loss_type, batch_num, i, j, iteration)
             elif top_subsampling:
-                plt.savefig(f'inversion_result_{loss_type}_{initial_guess}_top/iter={batch_num}_gradient_{iteration}.png')
-                plot_single(x0.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{initial_guess}_top/iter={batch_num}_inversion_{iteration}.png')
-                plot_single(output.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{initial_guess}_top/iter={batch_num}_inversion_{iteration}_output.png')
+                plt.savefig(f'inversion_result_{loss_type}_{initial_guess}_top_NGD/iter={batch_num}_gradient_{iteration}.png')
+                plot_single(x0.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{initial_guess}_top_NGD/iter={batch_num}_inversion_{iteration}.png')
+                plot_single(output.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{initial_guess}_top_NGD/iter={batch_num}_inversion_{iteration}_output.png')
                 plot_inversion_result(zero_X, x, y, output.detach().cpu().squeeze(), x0.clone().detach().cpu(), loss_type, batch_num, i, j, iteration)
             else:
-                plt.savefig(f'inversion_result_{loss_type}_{initial_guess}/iter={batch_num}_gradient_{iteration}.png')
-                plot_single(x0.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{initial_guess}/iter={batch_num}_inversion_{iteration}.png')
-                plot_single(output.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{initial_guess}/iter={batch_num}_inversion_{iteration}_output.png')
+                plt.savefig(f'inversion_result_{loss_type}_{initial_guess}_NGD/iter={batch_num}_gradient_{iteration}.png')
+                plot_single(x0.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{initial_guess}_NGD/iter={batch_num}_inversion_{iteration}.png')
+                plot_single(output.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{initial_guess}_NGD/iter={batch_num}_inversion_{iteration}_output.png')
                 plot_inversion_result(zero_X, x, y, output.detach().cpu().squeeze(), x0.clone().detach().cpu(), loss_type, batch_num, i, j, iteration)
 
         print(f"Iteration {iteration}, Loss: {loss_total.item():.4e}", inversion_MSE.item(), ssim_value)
@@ -556,10 +553,9 @@ if __name__ == "__main__":
     print(f"Using device: {device}")
 
     # Define simulation parameters.
-    num_vec = 128
+    num_vec = 50
     loss_type = "JAC"  # or "JAC" "MSE" "Devito"
-    GRF = 2
-    alpha = 1e-6 #0.05
+    alpha = 0 #1e-6 #0.05
     noise_std = 1.0 #0.3
     initial_guess = "smooth" # "smooth", "noisy"
     sub_sampling = True
@@ -574,17 +570,21 @@ if __name__ == "__main__":
         num_epoch = 2001 #1001
         offset=130
     elif initial_guess == "smooth":
-        learning_rate = 5 #0.5 #100 #0.0001 # 0.0001 (grf, fullobs) #0.005 (noisy, fullobs) #0.00005  # Inversion learning rate.
+        learning_rate = 50 #0.5 #100 #0.0001 # 0.0001 (grf, fullobs) #0.005 (noisy, fullobs) #0.00005  # Inversion learning rate.
         num_sample = 1 #3 #50
         num_sample_prior = 100
-        num_epoch = 5000 #35001 #500 #2201 #2001 #1001
+        num_epoch = 5 #5000 #35001 #500 #2201 #2001 #1001
         offset=120
+        GRF = 3
         if GRF == 1:
             kernel_size = 45 #55 #(grf, fullobs)
             sigma = 10.0 #100.0 # (grf, fullobs)
         elif GRF == 2:
             kernel_size = 55
             sigma = 100.0
+        elif GRF == 3:
+            kernel_size = 55
+            sigma = 50.0
     
     
     # Load configuration and dataset. and checkpoint
@@ -643,15 +643,15 @@ if __name__ == "__main__":
     final_ssim_list = []
     final_l2_list = []
 
-
+    print("saving h5 files...")
     if loss_type == "JAC" and top_subsampling == False :
-        fname = f'inversion_history_{loss_type}_{num_vec}_{initial_guess}.h5'
+        fname = f'inversion_history_{loss_type}_{num_vec}_{initial_guess}_NGD.h5'
     elif loss_type == "JAC" and top_subsampling == True:
-        fname = f'inversion_history_{loss_type}_{num_vec}_{initial_guess}_top.h5'
+        fname = f'inversion_history_{loss_type}_{num_vec}_{initial_guess}_top_NGD.h5'
     elif loss_type != "JAC" and top_subsampling == False :
-        fname = f'inversion_history_{loss_type}_{initial_guess}.h5'
+        fname = f'inversion_history_{loss_type}_{initial_guess}_NGD.h5'
     else:
-        fname = f'inversion_history_{loss_type}_{initial_guess}_top.h5'
+        fname = f'inversion_history_{loss_type}_{initial_guess}_top_NGD.h5'
     # If it already exists, delete it (and any stale lock)
     if os.path.exists(fname):
         os.remove(fname)
@@ -752,7 +752,7 @@ if __name__ == "__main__":
 
         # initial guess logic …
         if initial_guess == "smooth":
-            zero_X = apply_gaussian_smoothing(x, kernel_size, sigma) + 1e-3
+            zero_X = apply_gaussian_smoothing(x, kernel_size, sigma) + torch.randn_like(x) * 0.1
         elif initial_guess == "noisy":
             zero_X = x + torch.randn_like(x) * noise_std
         elif initial_guess == "prior_mean":
@@ -777,18 +777,6 @@ if __name__ == "__main__":
         # Plot the final inversion result.
         final_x0 = torch.tensor(posterior_set[-1]).detach()
         plot_inversion_result(zero_X, x, y, pred, final_x0, loss_type, sample_counter, i_idx, j_idx, num_epoch)
-
-        # Convert posterior_set to 2D projection
-        coords_2d, v1, v2 = project_to_2d_plane(posterior_set)
-
-        # Reference point (e.g., initial guess or center)
-        x0_ref = torch.tensor(posterior_set[0], dtype=torch.float32).to(device)
-
-        # Evaluate loss surface
-        grid_vals, loss_surface = evaluate_loss_surface(model, x0_ref, v1, v2, mse_loss, y, i_idx, j_idx)
-
-        # Plot
-        plot_loss_landscape_with_trajectory(grid_vals, loss_surface, coords_2d, f"loss_landscape_trajectory_{sample_counter}.png")
 
 
         # posterior_set is a list of length num_epoch, each an 128×128 numpy array.
@@ -823,3 +811,12 @@ if __name__ == "__main__":
 
     df.to_csv(csv_file, index=False)
     print(f"Loss data saved to {csv_file}")
+
+    # # Convert posterior_set to 2D projection
+    # coords_2d, v1, v2 = project_to_2d_plane(posterior_set)
+    # # Reference point (e.g., initial guess or center)
+    # x0_ref = torch.tensor(posterior_set[0], dtype=torch.float32).to(device)
+    # # Evaluate loss surface
+    # grid_vals, loss_surface = evaluate_loss_surface(model, x0_ref, v1, v2, mse_loss, y, i_idx, j_idx)
+    # # Plot
+    # plot_loss_landscape_with_trajectory(grid_vals, loss_surface, coords_2d, f"loss_landscape_trajectory_{sample_counter}.png")

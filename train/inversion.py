@@ -458,14 +458,14 @@ if __name__ == "__main__":
 
     # Define simulation parameters.
     num_vec = 128
-    loss_type = "JAC"  # or "JAC" "MSE" "Devito"
-    GRF = 2
+    loss_type = "Devito"  # or "JAC" "MSE" "Devito"
+    GRF = 3
     alpha = 0. #0.05
-    noise_std = 0.2 #0.3
+    noise_std = 1.0 #0.3
     initial_guess = "smooth" # "smooth", "noisy"
-    sub_sampling = False
+    sub_sampling = True
     top_subsampling = False
-    full_obs = True
+    full_obs = False
 
     if initial_guess == "prior_mean":
         learning_rate = 0.001 # 0.0001 (grf, fullobs) #0.005 (noisy, fullobs) #0.00005  # Inversion learning rate.
@@ -485,11 +485,14 @@ if __name__ == "__main__":
         elif GRF == 2:
             kernel_size = 55
             sigma = 100.0
+        elif GRF == 3:
+            kernel_size = 55
+            sigma = 50.0
 
         # learning_rate = 40 #100 #0.0001 # 0.0001 (grf, fullobs) #0.005 (noisy, fullobs) #0.00005  # Inversion learning rate.
         num_sample = 1 #3 #50
         num_sample_prior = 100
-        num_epoch = 1001 #500 #2201 #2001 #1001
+        num_epoch = 500 #500 #2201 #2001 #1001
 
 
     
@@ -610,7 +613,7 @@ if __name__ == "__main__":
             mask[i, j] = True
             coords = mask.nonzero(as_tuple=False)
             num_total = coords.shape[0]
-            subsample_ratio = 0.15
+            subsample_ratio = 1 #0.15
             num_subsample = int(subsample_ratio * num_total)
             indices = torch.randperm(num_total)[:num_subsample]
             selected_coords = coords[indices]
@@ -662,7 +665,7 @@ if __name__ == "__main__":
 
         # initial guess logic …
         if initial_guess == "smooth":
-            zero_X = apply_gaussian_smoothing(x, kernel_size, sigma) + 1e-3
+            zero_X = apply_gaussian_smoothing(x, kernel_size, sigma) + torch.randn_like(x) * 0.1
         elif initial_guess == "noisy":
             zero_X = x + torch.randn_like(x) * noise_std
         elif initial_guess == "prior_mean":
@@ -675,7 +678,7 @@ if __name__ == "__main__":
             model = lambda x: groundwater_model(x, forcing_term)
 
         posterior_set, losses, inversion_MSEs, regs, ssims, pred, loss_data_iter, i_idx, j_idx = (
-            least_squares_posterior_estimation_fisher(
+            least_squares_posterior_estimation(
                 model, zero_X, y,
                 learning_rate, batch_num=sample_counter,
                 num_iterations=num_epoch, prior=x, i=i, j=j
