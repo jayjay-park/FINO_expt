@@ -147,6 +147,26 @@ function forward_rule_jvp(hat_m, sim_forward, sim_backward, sim_param, states, t
                            opt_config_u=nothing, state_ref=nothing)
     N = length(tstep)
     x = Vector{Vector{Float64}}(undef, N)
+    println("optim", opt_config_u)
+    # optimJutul.JutulConfig(:info_level => 0, :debug_level => 0, :end_report => true, :id => "", 
+    # :max_timestep_cuts => 5, :max_timestep => Inf, :min_timestep => 0.0, :max_nonlinear_iterations => 15, 
+    # :min_nonlinear_iterations => 1, :failure_cuts_timestep => false, :check_before_solve => true, 
+    # :always_update_secondary => false, :error_on_incomplete => false, :output_states => true, 
+    # :output_reports => true, :safe_mode => true, :extra_timing => false, :ascii_terminal => false, 
+    # :linear_solver => Generic Krylov 
+    # using bicgstab (ϵₐ=1.0e-12, ϵ=0.005) with prec = CPRPreconditioner{Jutul.AMGPreconditioner{:smoothed_aggregation}, 
+    # Jutul.ILUZeroPreconditioner}, 
+    # :timestep_selectors => Jutul.TimestepSelector[Jutul.TimestepSelector(1.0, Inf, 2.0, Inf, Inf, 0.0)], 
+    # :timestep_max_increase => 10.0, :timestep_max_decrease => 0.1, :max_residual => 1.0e20, :relaxation => Jutul.NoRelaxation(), 
+    # :cutting_criterion => nothing, :tolerances => Dict{Symbol, Any}(:Injector => Dict{Symbol, Any}(:default => 0.001), 
+    # :Reservoir => Dict{Symbol, Any}(:default => 0.001), 
+    # :Facility => Dict{Symbol, Any}(:default => 0.001)), 
+    # :tol_factor_final_iteration => 1.0, :output_path => nothing, 
+    # :in_memory_reports => 10, :report_level => 0, 
+    # :output_substates => false, :post_ministep_hook => missing, 
+    # :post_iteration_hook => missing, :prepare_step => missing, 
+    # :progress_color => :green, :progress_glyphs => :default, 
+    
 
     # ----- Time step 1 -----
     state1 = states[1]
@@ -159,6 +179,7 @@ function forward_rule_jvp(hat_m, sim_forward, sim_backward, sim_param, states, t
         mapper, = Jutul.variable_mapper(sim_forward.model, :primary; targets, config=opt_config_u)
         devectorize_variables!(state1, sim_forward.model, states[1], mapper, config=opt_config_u)
     end
+    println("keys", keys(sim_forward.storage))
     # For time step 1, update simulators
     update_simulator!(sim_forward, state1, tstep, forces, 1)
     update_simulator!(sim_backward, state1, tstep, forces, 1)
@@ -254,8 +275,8 @@ For a given base parameter vector x0 and perturbation hat_x, this function:
   3. Prints a table comparing the FD derivative, custom JVP, and the absolute error.
 """
 
-function jvp_test_obj(x0, hat_x; config, sim, case, h0=5e-2, hfactor=0.8, maxiter=6)
-    base_val, jvp_val = full_objective_jvp(x0, hat_x; config, sim, case0)
+function jvp_test_obj(x0, hat_x; config, sim, case0, h0=5e-2, hfactor=0.8, maxiter=6)
+    base_val, jvp_val = full_objective_jvp(x0, hat_x; config, sim, case0=case0)
 
     println("      h        FD Deriv       JVP       |FD - JVP|   |Residual| = |F(x+εv) - F(x) - εJVP|")
     h = h0
@@ -275,4 +296,4 @@ end
 config0 = JutulDarcy.simulator_config(sim0)
 
 # Now run the finite-difference test of the JVP:
-jvp_test_obj(x0, dx; config=config0, sim=sim0, case=case0, h0=5e-2, hfactor=0.8, maxiter=6)
+jvp_test_obj(x0, dx; config=config0, sim=sim0, case0=case0, h0=5e-2, hfactor=0.8, maxiter=6)
