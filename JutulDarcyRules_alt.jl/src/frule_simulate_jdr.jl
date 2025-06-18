@@ -105,7 +105,7 @@ dϕ = sample_dϕ()
 @time states_ref, case, sim, x0_0 = S(x, ϕ, q; return_extra=true)
 
 config = JutulDarcy.simulator_config(sim)
-print("config", config)
+
 for m in Jutul.submodels_symbols(case.model)
     config[:tolerances][m][:default] = 1e-10
 end
@@ -126,8 +126,10 @@ misfit_dboth = (x0,ϕ0)->misfit(x0, ϕ0, q, states_ref)
 
 # Update the simulator state and reassemble its sensitivity system.
 function update_simulator!(sim, new_state, dt, forces, current_time)
-    Jutul.reset_variables!(sim.storage, sim.model, new_state)
+    # println("new state", new_state[current_time]) # states_ref[1][:state][:Reservoir]
+    Jutul.reset_variables!(sim.storage, sim.model, new_state[current_time]) #new_state[current_time]
     Jutul.update_secondary_variables!(sim.storage, sim.model)
+    println("key", keys(sim.storage))
     Jutul.update_before_step!(sim.storage, sim.model, dt, forces, time=current_time)
     Jutul.update_linearized_system!(sim.storage, sim.model)
     return sim
@@ -143,11 +145,10 @@ For time step 1, it computes
 and then for n ≥ 2:
   Qₙ = - Aₙ⁻¹ · (Bₙ * Qₙ₋₁ + Cₙ)   and   xₙ = Qₙ * hat_m.
 """
-function forward_rule_jvp(hat_m, sim_forward, sim_backward, sim_param, states, tstep, forces; 
+function forward_rule_jvp(hat_m, sim_forward, sim_backward, sim_param, states_list, tstep, forces; 
                            opt_config_u=nothing, state_ref=nothing)
     N = length(tstep)
     x = Vector{Vector{Float64}}(undef, N)
-    println("optim", opt_config_u)
     # optimJutul.JutulConfig(:info_level => 0, :debug_level => 0, :end_report => true, :id => "", 
     # :max_timestep_cuts => 5, :max_timestep => Inf, :min_timestep => 0.0, :max_nonlinear_iterations => 15, 
     # :min_nonlinear_iterations => 1, :failure_cuts_timestep => false, :check_before_solve => true, 
@@ -169,17 +170,18 @@ function forward_rule_jvp(hat_m, sim_forward, sim_backward, sim_param, states, t
     
 
     # ----- Time step 1 -----
-    state1 = states[1]
+    state1 = states_list[1]
     if isa(state1, AbstractVector)
+        println("Is an abstract vector!")
         if isnothing(opt_config_u) || isnothing(state_ref)
             error("Vectorized state provided but opt_config_u or state_ref is missing.")
         end
         state1 = deepcopy(state_ref)
         targets = Jutul.optimization_targets(opt_config_u, sim_forward.model)
         mapper, = Jutul.variable_mapper(sim_forward.model, :primary; targets, config=opt_config_u)
-        devectorize_variables!(state1, sim_forward.model, states[1], mapper, config=opt_config_u)
+        devectorize_variables!(state1, sim_forward.model, states_list[1], mapper, config=opt_config_u)
     end
-    println("keys", keys(sim_forward.storage))
+    # println("keys", keys(sim_forward.storage))
     # For time step 1, update simulators
     update_simulator!(sim_forward, state1, tstep, forces, 1)
     update_simulator!(sim_backward, state1, tstep, forces, 1)
@@ -201,7 +203,7 @@ function forward_rule_jvp(hat_m, sim_forward, sim_backward, sim_param, states, t
 
     # ----- Subsequent time steps -----
     for n in 2:N
-        state_n = states[n]
+        state_n = states_list[n]
         if isa(state_n, AbstractVector)
             if isnothing(opt_config_u) || isnothing(state_ref)
                 error("Vectorized state provided but opt_config_u or state_ref is missing.")
@@ -209,7 +211,7 @@ function forward_rule_jvp(hat_m, sim_forward, sim_backward, sim_param, states, t
             state_n = deepcopy(state_ref)
             targets = Jutul.optimization_targets(opt_config_u, sim_forward.model)
             mapper, = Jutul.variable_mapper(sim_forward.model, :primary; targets, config=opt_config_u)
-            devectorize_variables!(state_n, sim_forward.model, states[n], mapper, config=opt_config_u)
+            devectorize_variables!(state_n, sim_forward.model, states_list[n], mapper, config=opt_config_u)
         end
         update_simulator!(sim_forward, state_n, tstep, forces, n-1)
         update_simulator!(sim_backward, state_n, tstep, forces, n-1)
@@ -297,3 +299,10 @@ config0 = JutulDarcy.simulator_config(sim0)
 
 # Now run the finite-difference test of the JVP:
 jvp_test_obj(x0, dx; config=config0, sim=sim0, case0=case0, h0=5e-2, hfactor=0.8, maxiter=6)
+
+
+
+
+
+
+
