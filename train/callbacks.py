@@ -8,6 +8,7 @@ from pytorch_lightning.callbacks import Callback
 from matplotlib.colors import SymLogNorm, LinearSegmentedColormap
 import matplotlib.colors as colors
 from skimage.metrics import structural_similarity as ssim
+from pytorch_lightning.trainer.supporters import CombinedLoader
 
 try:
     import neptune
@@ -376,16 +377,30 @@ class NSVisualizationCallback(BaseVisualizationCallback):
     def on_train_epoch_end(self, trainer, pl_module):
         """Create visualization at the end of each training epoch."""
         if (trainer.current_epoch - 1) % self.plot_interval == 0:
-            train_loader = trainer.train_dataloader
+
+            train_dl = trainer.train_dataloader   # may be DataLoader or CombinedLoader
+
+            # unwrap if it’s a CombinedLoader
+            if isinstance(train_dl, CombinedLoader):
+                underlying = train_dl.loaders
+                # .loaders will be either a dict or a single DataLoader
+                if isinstance(underlying, dict):
+                    loader = next(iter(underlying.values()))
+                else:
+                    loader = underlying
+            else:
+                loader = train_dl
+
+            batch_size = loader.batch_size
 
             # Re-create the dataloader with shuffle=False for plotting same samples
             new_train_loader = DataLoader(
-                dataset=train_loader.dataset,
-                batch_size=train_loader.batch_size,
-                num_workers=train_loader.num_workers,
-                pin_memory=train_loader.pin_memory,
-                collate_fn=train_loader.collate_fn,
-                drop_last=train_loader.drop_last,
+                dataset=loader.dataset,
+                batch_size=batch_size,
+                num_workers=loader.num_workers,
+                pin_memory=loader.pin_memory,
+                collate_fn=loader.collate_fn,
+                drop_last=loader.drop_last,
                 shuffle=False,
             )
 
@@ -394,15 +409,15 @@ class NSVisualizationCallback(BaseVisualizationCallback):
     def on_validation_epoch_end(self, trainer, pl_module):
         """Create visualization at the end of each validation epoch."""
         with torch.no_grad():
-            self.plot_ns_results(trainer, pl_module, trainer.val_dataloaders, "val")
+            self.plot_ns_results(trainer, pl_module, trainer.val_dataloaders[0], "val")
             
     def plot_ns_data(self, x, y, pred):
         fig, axes = plt.subplots(4, 1, figsize=(10, 15))
         
         # Convert tensors to numpy arrays
-        x_np = x.squeeze().cpu().numpy()
-        y_np = y.squeeze().cpu().numpy() 
-        pred_np = pred.squeeze().cpu().numpy()
+        x_np = x[0].squeeze().cpu().numpy()
+        y_np = y[0].squeeze().cpu().numpy() 
+        pred_np = pred[0].squeeze().cpu().numpy()
         
         # Calculate global min/max
         vmin = min(np.min(y_np), np.min(pred_np))
@@ -464,12 +479,14 @@ class NS_JVP_VisualizationCallback(BaseVisualizationCallback):
     def on_train_epoch_end(self, trainer, pl_module):
         """Create visualization at the end of each training epoch."""
         if (trainer.current_epoch - 1) % self.plot_interval == 0:
+            print("train")
             self.plot_jvp_results(trainer, pl_module, trainer.train_dataloader, "train")
         
     def on_validation_epoch_end(self, trainer, pl_module):
         """Create visualization at the end of each validation epoch."""
         with torch.no_grad():
-            self.plot_jvp_results(trainer, pl_module, trainer.val_dataloaders, "val")
+            print("val")
+            self.plot_jvp_results(trainer, pl_module, trainer.val_dataloaders[0], "val")
             
     def plot_jvp_data(self, v, Jvp, pred_Jvp):
         
@@ -484,9 +501,9 @@ class NS_JVP_VisualizationCallback(BaseVisualizationCallback):
         fig, axes = plt.subplots(4, 4, figsize=(15, 15))    
         
         for eig_idx in range(cols):
-            x_np = v[:, :, eig_idx]
-            y_np = Jvp[:, :, eig_idx] 
-            pred_np = pred_Jvp[:, :, eig_idx]
+            x_np = v[0, :, :, eig_idx]
+            y_np = Jvp[0, :, :, eig_idx] 
+            pred_np = pred_Jvp[0, :, :, eig_idx]
             
             # Input
             im0 = axes[0, eig_idx].imshow(x_np, cmap='jet', vmin=np.min(v), vmax=np.max(v))
@@ -524,6 +541,12 @@ class NS_JVP_VisualizationCallback(BaseVisualizationCallback):
             y = batch['y'].to(pl_module.device)
             Jvp = batch['Jvp'].to(pl_module.device)
             v = batch['v'].to(pl_module.device)
+            print("v", v.shape)
+            # if tag == "val":
+            #     v_probe = v
+            # else:
+            #     v_probe = v
+            v_probe = v
             
             with torch.no_grad():
                 pred_Jvp = pl_module(x)
@@ -532,7 +555,8 @@ class NS_JVP_VisualizationCallback(BaseVisualizationCallback):
             batch_idx = 0  # Visualize first sample in batch
             vec_idx = 0    # Visualize first vector
             
-            Jvp_pred = pl_module.compute_Jvp(x, v).detach()
+            with torch.no_grad():
+                Jvp_pred = pl_module.compute_Jvp(x, v_probe, create_graph=False).detach()
             fig = self.plot_jvp_data(v, Jvp, Jvp_pred)
             filename = f"jvp_{tag}_sample_{batch['idx'][batch_idx]}_epoch_{trainer.current_epoch}.png"
             self.save_figure(fig, filename)
@@ -546,7 +570,7 @@ class NS_Inversion_VisualizationCallback(BaseVisualizationCallback):
         """Create visualization at the end of each training epoch."""
         
         self.invert_ns(trainer, pl_module, trainer.train_dataloader, "train")
-        self.invert_ns(trainer, pl_module, trainer.val_dataloaders, "val")
+        self.invert_ns(trainer, pl_module, trainer.val_dataloaders[0], "val")
         
     def plot_ns_data(self, x0, x, y, x_pred):
         x0 = x0.squeeze().cpu().numpy()
@@ -635,7 +659,7 @@ class NS_Inversion_VisualizationCallback(BaseVisualizationCallback):
             l2_final.append(l2_val)
             ssim_final.append(ssim_val)
                 
-            fig = self.plot_ns_data(x0_init, x, y, x0.detach())
+            fig = self.plot_ns_data(x0_init[0], x, y, x0.detach())
             filename = f"ns_inversion_{tag}_sample_{batch['idx'][batch_idx]}_epoch_{trainer.current_epoch}.png"
             self.save_figure(fig, filename)
             self.log_figure(trainer, pl_module, fig, f"{tag}/sample_{batch['idx'][batch_idx]}/ns_inversion", trainer.current_epoch)

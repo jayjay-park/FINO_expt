@@ -3,38 +3,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import h5py
 
-# def compute_rel_norm(h5_path_model: str,
-#                      h5_path_devito: str,
-#                      p: float = np.inf):
-#     """
-#     Read two HDF5 files, each containing a dataset 'a' of shape
-#     (num_samples, num_iter, H, W), and compute for each iteration t:
-#        rel_norm[t] = || a_model[:,t,:,:] - a_devito[:,t,:,:] ||_p
-#                      / || a_devito[:,t,:,:] ||_p
-#     returning an array of shape (num_iter,).
-#     """
-#     with h5py.File(h5_path_model, 'r') as f_m, \
-#          h5py.File(h5_path_devito, 'r') as f_d:
-#         A_m = f_m['a'][:]    # shape = (S, T, H, W)
-#         A_d = f_d['a'][:]    # same shape
-#         print("loaded")
-#     # flatten spatial dims, collapse samples if you like mean over samples
-#     # Here we average the error over samples:
-#     S, T, H, W = A_m.shape
-#     rel = np.zeros(T, dtype=float)
-#     for t in range(T):
-#         print("T", t)
-#         # shape (S, H*W)
-#         M_flat = A_m[:, t].reshape(S, -1) # number of sample, 128, 128
-#         D_flat = A_d[:, t].reshape(S, -1)
-#         # compute per-sample norm, then average
-#         sample = np.linalg.norm(M_flat - D_flat, ord=p, axis=1)
-#         den = np.linalg.norm(D_flat, ord=p, axis=1)
-#         mean_s = sample / den
-#         avg = np.mean(mean_s)
-#         rel[t] = avg
-#     return rel
-
 
 def compute_avg_time(csv_file, max_iter=1250):
     df = pd.read_csv(csv_file)
@@ -56,115 +24,9 @@ def plot_metrics_comparison(csv_jac_1, csv_jac_10, csv_jac_50, csv_jac_100, csv_
     df_jac_10 = pd.read_csv(csv_jac_10)
     df_jac_50 = pd.read_csv(csv_jac_50)
     df_jac_100 = pd.read_csv(csv_jac_100)
+    df_jac_200 = pd.read_csv(csv_jac_200)
     df_mse = pd.read_csv(csv_mse)
     df_rand = pd.read_csv(csv_rand)
-
-
-    # def compute_rel_norm(h5_path_model, h5_path_devito, p=np.inf, max_iter=2200, batch_size=5):
-    #     with h5py.File(h5_path_model, 'r') as f_m, h5py.File(h5_path_devito, 'r') as f_d:
-    #         A_m = f_m['a']
-    #         A_d = f_d['a']
-    #         S, T, H, W = A_m.shape
-    #         if max_iter is None:
-    #             max_iter = T
-
-    #         rel = np.zeros(max_iter)
-
-    #         for t in range(max_iter):
-    #             print("T", t, flush=True)
-    #             batch_rel = []
-    #             for s0 in range(0, S, batch_size):
-    #                 print("S", s0, flush=True)
-    #                 s1 = min(s0 + batch_size, S)
-    #                 M = A_m[s0:s1, t, :, :].reshape(s1 - s0, -1)
-    #                 D = A_d[s0:s1, t, :, :].reshape(s1 - s0, -1)
-
-    #                 if p == np.inf:
-    #                     print("inf", flush=True)
-    #                     sample = np.max(np.abs(M - D), axis=1)
-    #                     den = np.max(np.abs(D), axis=1)
-    #                 else:
-    #                     print("2", flush=True)
-    #                     sample = np.linalg.norm(M - D, ord=p, axis=1)
-    #                     den = np.linalg.norm(D, ord=p, axis=1)
-
-    #                 batch_rel.append(np.mean(sample / den))
-
-    #             rel[t] = np.mean(batch_rel)
-
-    #     return rel
-
-    # def compute_rel_norm(h5_path_model: str,
-        #              h5_path_devito: str,
-        #              p: float = np.inf,
-        #              max_iter: int = 2200,
-        #              num_samples: int = 5):
-        # with h5py.File(h5_path_model, 'r') as f_m, h5py.File(h5_path_devito, 'r') as f_d:
-        #     A_m = f_m['a'][:num_samples]  # shape = (S, T, H, W)
-        #     A_d = f_d['a'][:num_samples]
-        # print("loaded")
-
-        # S, T, H, W = A_m.shape
-        # if max_iter is None:
-        #     max_iter = T
-
-        # mean_rel = np.zeros(max_iter, dtype=float)
-        # std_rel = np.zeros(max_iter, dtype=float)
-
-        # for t in range(max_iter):
-        #     M_flat = A_m[:, t].reshape(S, -1)
-        #     D_flat = A_d[:, t].reshape(S, -1)
-        #     diff = M_flat - D_flat
-
-        #     if p == np.inf:
-        #         sample = np.max(np.abs(diff), axis=1)
-        #         den = np.max(np.abs(D_flat), axis=1)
-        #     else:
-        #         sample = np.linalg.norm(diff, ord=p, axis=1)
-        #         den = np.linalg.norm(D_flat, ord=p, axis=1)
-
-        #     rel_values = sample / den
-        #     mean_rel[t] = np.mean(rel_values)
-        #     std_rel[t] = np.std(rel_values)
-
-        # return mean_rel, std_rel
-
-    # def compute_rel_norm(h5_path_model, h5_path_devito, p=np.inf, max_iter=2200, batch_size=5):
-    #     with h5py.File(h5_path_model, 'r') as f_m, h5py.File(h5_path_devito, 'r') as f_d:
-    #         A_m = f_m['a']
-    #         A_d = f_d['a']
-    #         S, T, H, W = A_m.shape
-    #         if max_iter is None:
-    #             max_iter = T
-
-    #         rel_mean = np.zeros(max_iter)
-    #         rel_std = np.zeros(max_iter)
-
-    #         for t in range(max_iter):
-    #             print(f"Timestep {t}/{max_iter}", flush=True)
-    #             all_rel_errors = []  # Store all sample-wise relative errors for this timestep
-
-    #             for s0 in range(0, S, batch_size):
-    #                 s1 = min(s0 + batch_size, S)
-    #                 M = A_m[s0:s1, t].reshape(s1 - s0, -1)
-    #                 D = A_d[s0:s1, t].reshape(s1 - s0, -1)
-    #                 diff = M - D
-
-    #                 if p == np.inf:
-    #                     sample = np.max(np.abs(diff), axis=1)
-    #                     den = np.max(np.abs(D), axis=1)
-    #                 else:
-    #                     sample = np.linalg.norm(diff, ord=p, axis=1)
-    #                     den = np.linalg.norm(D, ord=p, axis=1)
-
-    #                 rel_errors = sample / den
-    #                 all_rel_errors.append(rel_errors)
-
-    #             all_rel_errors = np.concatenate(all_rel_errors, axis=0)
-    #             rel_mean[t] = np.mean(all_rel_errors)
-    #             rel_std[t] = np.std(all_rel_errors)
-
-    #     return rel_mean, rel_std
 
     def compute_rel_norm_per_batch(h5_path_model: str,
                         h5_path_devito: str,
@@ -242,40 +104,44 @@ def plot_metrics_comparison(csv_jac_1, csv_jac_10, csv_jac_50, csv_jac_100, csv_
 
     print("Compute rel norms")
 
-    rel_2_1_mean, rel_2_1_std  = compute_rel_norm(h5_jac_1, h5_rand, p=2, max_iter=max_iter)
-    rel_2_10_mean, rel_2_10_std  = compute_rel_norm(h5_jac_10, h5_rand, p=2, max_iter=max_iter)
-    rel_2_50_mean, rel_2_50_std  = compute_rel_norm(h5_jac_50, h5_rand, p=2, max_iter=max_iter)
-    rel_2_100_mean, rel_2_100_std = compute_rel_norm(h5_jac_100, h5_rand, p=2, max_iter=max_iter)
+    # rel_2_1_mean, rel_2_1_std  = compute_rel_norm(h5_jac_1, h5_rand, p=2, max_iter=max_iter)
+    # rel_2_10_mean, rel_2_10_std  = compute_rel_norm(h5_jac_10, h5_rand, p=2, max_iter=max_iter)
+    # rel_2_50_mean, rel_2_50_std  = compute_rel_norm(h5_jac_50, h5_rand, p=2, max_iter=max_iter)
+    # rel_2_100_mean, rel_2_100_std = compute_rel_norm(h5_jac_100, h5_rand, p=2, max_iter=max_iter)
+    rel_2_200_mean, rel_2_200_std = compute_rel_norm(h5_jac_200, h5_rand, p=2, max_iter=max_iter)
     rel_2_mse_mean, rel_2_mse_std = compute_rel_norm(h5_mse, h5_rand, p=2, max_iter=max_iter)
 
     print("Compute rel norms infty")
 
-    rel_inf_1_mean, rel_inf_1_std   = compute_rel_norm(h5_jac_1, h5_rand, p=np.inf, max_iter=max_iter)
-    rel_inf_10_mean, rel_inf_10_std  = compute_rel_norm(h5_jac_10, h5_rand, p=np.inf, max_iter=max_iter)
-    rel_inf_50_mean, rel_inf_50_std  = compute_rel_norm(h5_jac_50, h5_rand, p=np.inf, max_iter=max_iter)
-    rel_inf_100_mean, rel_inf_100_std = compute_rel_norm(h5_jac_100, h5_rand, p=np.inf, max_iter=max_iter)
+    # rel_inf_1_mean, rel_inf_1_std   = compute_rel_norm(h5_jac_1, h5_rand, p=np.inf, max_iter=max_iter)
+    # rel_inf_10_mean, rel_inf_10_std  = compute_rel_norm(h5_jac_10, h5_rand, p=np.inf, max_iter=max_iter)
+    # rel_inf_50_mean, rel_inf_50_std  = compute_rel_norm(h5_jac_50, h5_rand, p=np.inf, max_iter=max_iter)
+    # rel_inf_100_mean, rel_inf_100_std = compute_rel_norm(h5_jac_100, h5_rand, p=np.inf, max_iter=max_iter)
+    rel_inf_200_mean, rel_inf_200_std = compute_rel_norm(h5_jac_200, h5_rand, p=np.inf, max_iter=max_iter)
     rel_inf_mse_mean, rel_inf_mse_std = compute_rel_norm(h5_mse, h5_rand, p=np.inf, max_iter=max_iter)
 
     print("Compute avg time")
 
-    avg_time_jac_1 = compute_avg_time(csv_jac_1, max_iter)
-    avg_time_jac_10 = compute_avg_time(csv_jac_10, max_iter)
-    avg_time_jac_50 = compute_avg_time(csv_jac_50, max_iter)
-    avg_time_jac_100 = compute_avg_time(csv_jac_100, max_iter)
+    # avg_time_jac_1 = compute_avg_time(csv_jac_1, max_iter)
+    # avg_time_jac_10 = compute_avg_time(csv_jac_10, max_iter)
+    # avg_time_jac_50 = compute_avg_time(csv_jac_50, max_iter)
+    # avg_time_jac_100 = compute_avg_time(csv_jac_100, max_iter)
+    avg_time_jac_200 = compute_avg_time(csv_jac_200, max_iter)
     avg_time_mse = compute_avg_time(csv_mse, max_iter)
-    avg_time_rand = compute_avg_time(csv_rand, max_iter)
+    # avg_time_rand = compute_avg_time(csv_rand, max_iter)
 
     print(f"Avg time to {max_iter} iters (s):")
-    print("JAC (1):", avg_time_jac_1 / 60)
-    print("JAC (10):", avg_time_jac_10 / 60)
-    print("JAC (50):", avg_time_jac_50 / 60)
-    print("JAC (100):", avg_time_jac_100 / 60)
+    # print("JAC (1):", avg_time_jac_1 / 60)
+    # print("JAC (10):", avg_time_jac_10 / 60)
+    # print("JAC (50):", avg_time_jac_50 / 60)
+    # print("JAC (100):", avg_time_jac_100 / 60)
+    print("JAC (100):", avg_time_jac_200 / 60)
     print("MSE:", avg_time_mse/ 60)
-    print("Simulator:", avg_time_rand/ 60)
+    # print("Simulator:", avg_time_rand/ 60)
 
 
 
-    iters = np.arange(1, rel_2_1_mean.shape[0] + 1)
+    iters = np.arange(1, max_iter + 1)
 
     # Define layout
     optimization_metrics = ["loss", "regularization"]
@@ -296,25 +162,28 @@ def plot_metrics_comparison(csv_jac_1, csv_jac_10, csv_jac_50, csv_jac_100, csv_
     # Inner function for standard metrics
     def plot_metric(ax, metric):
         print("metric", metric)
-        grouped_jac_1 = df_jac_1.groupby("iteration")[metric].agg(["mean"]).reset_index()[:max_iter]
-        grouped_jac_10 = df_jac_10.groupby("iteration")[metric].agg(["mean"]).reset_index()[:max_iter]
-        grouped_jac_50 = df_jac_50.groupby("iteration")[metric].agg(["mean"]).reset_index()[:max_iter]
-        grouped_jac_100 = df_jac_100.groupby("iteration")[metric].agg(["mean"]).reset_index()[:max_iter]
+        # grouped_jac_1 = df_jac_1.groupby("iteration")[metric].agg(["mean"]).reset_index()[:max_iter]
+        # grouped_jac_10 = df_jac_10.groupby("iteration")[metric].agg(["mean"]).reset_index()[:max_iter]
+        # grouped_jac_50 = df_jac_50.groupby("iteration")[metric].agg(["mean"]).reset_index()[:max_iter]
+        # grouped_jac_100 = df_jac_100.groupby("iteration")[metric].agg(["mean"]).reset_index()[:max_iter]
+        grouped_jac_200 = df_jac_200.groupby("iteration")[metric].agg(["mean"]).reset_index()[:max_iter]
         grouped_mse = df_mse.groupby("iteration")[metric].agg(["mean"]).reset_index()[:max_iter]
         grouped_rand = df_rand.groupby("iteration")[metric].agg(["mean"]).reset_index()[:max_iter]
 
-        val_jac_1   = get_final_value(grouped_jac_1, "JAC (1)")
-        val_jac_10  = get_final_value(grouped_jac_10, "JAC (10)")
-        val_jac_50  = get_final_value(grouped_jac_50, "JAC (50)")
-        val_jac_100 = get_final_value(grouped_jac_100, "JAC (100)")
+        # val_jac_1   = get_final_value(grouped_jac_1, "JAC (1)")
+        # val_jac_10  = get_final_value(grouped_jac_10, "JAC (10)")
+        # val_jac_50  = get_final_value(grouped_jac_50, "JAC (50)")
+        # val_jac_100 = get_final_value(grouped_jac_100, "JAC (100)")
+        val_jac_200 = get_final_value(grouped_jac_200, "JAC (200)")
         val_mse     = get_final_value(grouped_mse, "MSE")
         val_rand    = get_final_value(grouped_rand, "Simulator")
 
         color_jac, color_mse, color_rand = color_map.get(metric, ("blue", "orange", "gray"))
-        ax.plot(grouped_jac_1["iteration"], grouped_jac_1["mean"], label="Jvp:FIM (1)", color=color_jac, linestyle='-', marker='x', markevery=200)
-        ax.plot(grouped_jac_10["iteration"], grouped_jac_10["mean"], label="Jvp:FIM (10)", color=color_jac, linestyle='--', marker='D', markevery=200)
-        ax.plot(grouped_jac_50["iteration"], grouped_jac_50["mean"], label="Jvp:FIM (50)", color=color_jac, linestyle='-.', marker='o', markevery=200)
-        ax.plot(grouped_jac_100["iteration"], grouped_jac_100["mean"], label="Jvp:FIM (100)", color=color_jac, linestyle=':', marker='*', markevery=200)
+        # ax.plot(grouped_jac_1["iteration"], grouped_jac_1["mean"], label="Jvp:FIM (1)", color=color_jac, linestyle='-', marker='x', markevery=200)
+        # ax.plot(grouped_jac_10["iteration"], grouped_jac_10["mean"], label="Jvp:FIM (10)", color=color_jac, linestyle='--', marker='D', markevery=200)
+        # ax.plot(grouped_jac_50["iteration"], grouped_jac_50["mean"], label="Jvp:FIM (50)", color=color_jac, linestyle='-.', marker='o', markevery=200)
+        # ax.plot(grouped_jac_100["iteration"], grouped_jac_100["mean"], label="Jvp:FIM (100)", color=color_jac, linestyle=':', marker='*', markevery=200)
+        ax.plot(grouped_jac_200["iteration"], grouped_jac_200["mean"], label="Jvp:FIM (200)", color=color_jac, linestyle=':', marker='*', markevery=200)
         ax.plot(grouped_mse["iteration"], grouped_mse["mean"], label="MSE", color=color_mse, marker='s', markevery=200)
         ax.plot(grouped_rand["iteration"], grouped_rand["mean"], label="Simulator", color=color_rand, marker='^', markevery=200)
         ax.set_xlabel("iteration")
@@ -334,8 +203,8 @@ def plot_metrics_comparison(csv_jac_1, csv_jac_10, csv_jac_50, csv_jac_100, csv_
 
 
     # Plot top (optimization)
-    for idx, metric in enumerate(optimization_metrics):
-        plot_metric(axes[idx], metric)
+    # for idx, metric in enumerate(optimization_metrics):
+    #     plot_metric(axes[idx], metric)
 
     # Plot middle (inversion)
     for idx, metric in enumerate(inversion_metrics):
@@ -348,10 +217,11 @@ def plot_metrics_comparison(csv_jac_1, csv_jac_10, csv_jac_50, csv_jac_100, csv_
     # ax.plot(iters, rel_2_50,  label="Jvp:FIM (50)", linestyle='-.', marker='o', color="blueviolet", markevery=200)
     # ax.plot(iters, rel_2_100, label="Jvp:FIM (100)", linestyle=':', marker='*', color="blueviolet", markevery=200)
     # ax.plot(iters, rel_2_mse, label="MSE", marker='s', color="red", markevery=200)
-    ax.errorbar(iters, rel_2_1_mean, yerr=rel_2_1_std, label="Jvp:FIM (1)", linestyle='-', marker='x', color="darkorange", errorevery=200, markevery=200,capsize=3,alpha=0.8)
-    ax.errorbar(iters, rel_2_10_mean, yerr=rel_2_10_std, label="Jvp:FIM (10)", linestyle='--', marker='D', color="forestgreen", errorevery=200, markevery=200,capsize=3,alpha=0.8)
-    ax.errorbar(iters, rel_2_50_mean, yerr=rel_2_50_std, label="Jvp:FIM (50)", linestyle='-.', marker='o', color="cornflowerblue", errorevery=200, markevery=200,capsize=3,alpha=0.8)
-    ax.errorbar(iters, rel_2_100_mean, yerr=rel_2_100_std, label="Jvp:FIM (100)", linestyle=':', marker='*', color="blueviolet", errorevery=200, markevery=200,capsize=3,alpha=0.8)
+    # ax.errorbar(iters, rel_2_1_mean, yerr=rel_2_1_std, label="Jvp:FIM (1)", linestyle='-', marker='x', color="darkorange", errorevery=200, markevery=200,capsize=3,alpha=0.8)
+    # ax.errorbar(iters, rel_2_10_mean, yerr=rel_2_10_std, label="Jvp:FIM (10)", linestyle='--', marker='D', color="forestgreen", errorevery=200, markevery=200,capsize=3,alpha=0.8)
+    # ax.errorbar(iters, rel_2_50_mean, yerr=rel_2_50_std, label="Jvp:FIM (50)", linestyle='-.', marker='o', color="cornflowerblue", errorevery=200, markevery=200,capsize=3,alpha=0.8)
+    # ax.errorbar(iters, rel_2_100_mean, yerr=rel_2_100_std, label="Jvp:FIM (100)", linestyle=':', marker='*', color="blueviolet", errorevery=200, markevery=200,capsize=3,alpha=0.8)
+    ax.errorbar(iters, rel_2_200_mean, yerr=rel_2_200_std, label="Jvp:FIM (200)", linestyle=':', marker='*', color="blueviolet", errorevery=200, markevery=200,capsize=3,alpha=0.8)
     ax.errorbar(iters, rel_2_mse_mean, yerr=rel_2_mse_std, label="MSE", marker='s', color="darkred", errorevery=200, markevery=200,capsize=3,alpha=0.8)
     ax.set_title(r"Relative 2-norm error to $\mathbf{a}_\text{NS}$")
     ax.set_ylabel(r"$\frac{\|\mathbf{a}_{\text{model}} - \mathbf{a}_{\text{NS}}\|_2}{\|\mathbf{a}_{\text{NS}}\|_2}$")
@@ -365,10 +235,11 @@ def plot_metrics_comparison(csv_jac_1, csv_jac_10, csv_jac_50, csv_jac_100, csv_
     # ax.plot(iters, rel_inf_50,  label="Jvp:FIM (50)", linestyle='-.', marker='o', color="blueviolet", markevery=200)
     # ax.plot(iters, rel_inf_100, label="Jvp:FIM (100)", linestyle=':', marker='*', color="blueviolet", markevery=200)
     # ax.plot(iters, rel_inf_mse, label="MSE", marker='s', color="red", markevery=200)
-    ax.errorbar(iters, rel_inf_1_mean, yerr=rel_inf_1_std, label="Jvp:FIM (1)", linestyle='-', marker='x', color="darkorange", errorevery=200, markevery=200,capsize=3,alpha=0.8)
-    ax.errorbar(iters, rel_inf_10_mean, yerr=rel_inf_10_std, label="Jvp:FIM (10)", linestyle='--', marker='D', color="forestgreen", errorevery=200, markevery=200,capsize=3,alpha=0.8)
-    ax.errorbar(iters, rel_inf_50_mean, yerr=rel_inf_50_std, label="Jvp:FIM (50)", linestyle='-.', marker='o', color="cornflowerblue", errorevery=200, markevery=200,capsize=3,alpha=0.8)
-    ax.errorbar(iters, rel_inf_100_mean, yerr=rel_inf_100_std, label="Jvp:FIM (100)", linestyle=':', marker='*', color="blueviolet", errorevery=200, markevery=200,capsize=3,alpha=0.8)
+    # ax.errorbar(iters, rel_inf_1_mean, yerr=rel_inf_1_std, label="Jvp:FIM (1)", linestyle='-', marker='x', color="darkorange", errorevery=200, markevery=200,capsize=3,alpha=0.8)
+    # ax.errorbar(iters, rel_inf_10_mean, yerr=rel_inf_10_std, label="Jvp:FIM (10)", linestyle='--', marker='D', color="forestgreen", errorevery=200, markevery=200,capsize=3,alpha=0.8)
+    # ax.errorbar(iters, rel_inf_50_mean, yerr=rel_inf_50_std, label="Jvp:FIM (50)", linestyle='-.', marker='o', color="cornflowerblue", errorevery=200, markevery=200,capsize=3,alpha=0.8)
+    # ax.errorbar(iters, rel_inf_100_mean, yerr=rel_inf_100_std, label="Jvp:FIM (100)", linestyle=':', marker='*', color="blueviolet", errorevery=200, markevery=200,capsize=3,alpha=0.8)
+    ax.errorbar(iters, rel_inf_200_mean, yerr=rel_inf_200_std, label="Jvp:FIM (200)", linestyle=':', marker='*', color="blueviolet", errorevery=200, markevery=200,capsize=3,alpha=0.8)
     ax.errorbar(iters, rel_inf_mse_mean, yerr=rel_inf_mse_std, label="MSE", marker='s', color="darkred", errorevery=200, markevery=200,capsize=3,alpha=0.8)
     
     ax.set_title(r"Relative $\infty$-norm error to $\mathbf{a}_\text{NS}$")
@@ -386,8 +257,9 @@ def plot_metrics_comparison(csv_jac_1, csv_jac_10, csv_jac_50, csv_jac_100, csv_
 # File paths
 initial_guess = "smooth" #"smooth"
 norm = "infty" #np.inf #2
-max_iter = 499 #1200 #2200
+max_iter = 1999 #1200 #2200
 folder = "."
+gd_type = "NGD" # None
 
 print("folder exists", flush=True)
 
@@ -395,15 +267,17 @@ csv_jac_1 = f"{folder}/loss_statistics_multiple_samples_JAC_1_{initial_guess}.cs
 csv_jac_10 = f"{folder}/loss_statistics_multiple_samples_JAC_10_{initial_guess}.csv"
 csv_jac_50 = f"{folder}/loss_statistics_multiple_samples_JAC_50_{initial_guess}.csv"
 csv_jac_100 = f"{folder}/loss_statistics_multiple_samples_JAC_100_{initial_guess}.csv"
+csv_jac_200 = f"{folder}/loss_statistics_multiple_samples_JAC_200_{initial_guess}.csv"
 csv_mse = f"{folder}/loss_statistics_multiple_samples_MSE_{initial_guess}.csv"
 csv_rand = f"{folder}/loss_statistics_multiple_samples_Devito_{initial_guess}.csv"
 
-h5_jac_1 = f"{folder}/inversion_history_JAC_1_{initial_guess}.h5"
-h5_jac_10 = f"{folder}/inversion_history_JAC_10_{initial_guess}.h5"
-h5_jac_50 = f"{folder}/inversion_history_JAC_50_{initial_guess}.h5"
-h5_jac_100 = f"{folder}/inversion_history_JAC_100_{initial_guess}.h5"
-h5_mse = f"{folder}/inversion_history_MSE_{initial_guess}.h5"
-h5_rand = f"{folder}/inversion_history_Devito_{initial_guess}.h5"
+h5_jac_1 = f"{folder}/inversion_history_JAC_1_{initial_guess}_{gd_type}.h5"
+h5_jac_10 = f"{folder}/inversion_history_JAC_10_{initial_guess}_{gd_type}.h5"
+h5_jac_50 = f"{folder}/inversion_history_JAC_50_{initial_guess}_{gd_type}.h5"
+h5_jac_100 = f"{folder}/inversion_history_JAC_100_{initial_guess}_{gd_type}.h5"
+h5_jac_200 = f"{folder}/inversion_history_JAC_200_{initial_guess}_{gd_type}.h5"
+h5_mse = f"{folder}/inversion_history_MSE_{initial_guess}_{gd_type}.h5"
+h5_rand = f"{folder}/inversion_history_Devito_{initial_guess}_{gd_type}.h5"
 
 print("h5 rand", flush=True)
 

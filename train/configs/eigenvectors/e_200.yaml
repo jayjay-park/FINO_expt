@@ -1,0 +1,26 @@
+base_config: ../darcy_default.yaml
+
+experiment:
+  name: "n=400_e=200_m=FNO_s=RFS_l=JAC"
+  tags:
+    - "200 Eigenvector"
+    - "400 samples"
+    - "FNO"
+    - "RFS"
+    - "JAC"
+
+data_settings:
+  eigen_count: 200
+  batch_size: 50
+
+model_settings:
+  train_eigen_count: 200
+
+training_settings:
+  accum_steps: 1
+  num_epoch: 200
+  num_train: 400
+  num_test: 50
+  num_samples: 400
+  num_GPU: 2
+  strategy: "ddp"

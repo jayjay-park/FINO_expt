@@ -11,6 +11,7 @@ import torch
 
 from omegaconf import OmegaConf, DictConfig
 
+
 try:
     import neptune
     NEPTUNE_AVAILABLE = True
@@ -47,11 +48,11 @@ def get_model(model_type: str, model_settings: DictConfig) -> str:
 
 def get_dataset(dataset_type: str, data_settings: DictConfig) -> str:
     if dataset_type == "GCS":
-        from datasets.gcs import GCSDataLoader
+        from data_type.gcs import GCSDataLoader
         data_loader = GCSDataLoader() # Non Functional Data Loader. Reimplement call if needed. (Removed due to vJp -> Jvp)
         return data_loader
     elif dataset_type == "NS":
-        from datasets.ns import NSDataLoader
+        from data_type.ns import NSDataLoader
         data_loader = NSDataLoader(
             nx=data_settings.nx,
             ny=data_settings.ny,
@@ -60,7 +61,7 @@ def get_dataset(dataset_type: str, data_settings: DictConfig) -> str:
             batch_size=data_settings.batch_size,
         )
     elif dataset_type == "DARCY":
-        from datasets.ns import NSDataLoader
+        from data_type.ns import NSDataLoader
         data_loader = NSDataLoader(
             nx=data_settings.nx,
             ny=data_settings.ny,
@@ -68,6 +69,7 @@ def get_dataset(dataset_type: str, data_settings: DictConfig) -> str:
             sample_directories=data_settings.sample_directories,
             batch_size=data_settings.batch_size,
         )
+        print("2", data_settings.sample_directories)
         return data_loader
     else:
         raise ValueError(f"Invalid dataset type: {dataset_type}")

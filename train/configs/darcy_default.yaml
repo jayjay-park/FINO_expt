@@ -17,8 +17,13 @@ data_settings:
   batch_size: 1
   eigen_count: 100
   sample_directories:
-    - "../datasets/datasets/dataset_DARCY"
-    - "../datasets/datasets/dataset_DARCY2"
+    # - "../datasets/datasets/dataset_DARCY"
+    # - "../datasets/datasets/dataset_DARCY2"
+    - "../datasets/datasets/dataset_DARCY_cov1"
+    - "../datasets/datasets/dataset_DARCY_cov2"
+    - "../datasets/datasets/dataset_DARCY_cov3"
+    - "../datasets/datasets/dataset_DARCY_cov4"
+    - "../datasets/datasets/dataset_DARCY_cov5"
 
 model_settings:
   in_channels: 1

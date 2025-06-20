@@ -11,7 +11,7 @@ from scipy.interpolate import interp1d
 import time
 import sys
 import torch.nn.functional as F
-from groundwater.devito_op import GroundwaterModel, GroundwaterLayer
+from groundwater.devito_op import GroundwaterModel, GroundwaterLayer, GroundwaterEquation
 import h5py
 import pickle
 import os
@@ -69,7 +69,6 @@ def gradient_penalty(x):
 def plot_single(true1, path, cmap="jet", vmin=None, vmax=None):
     plt.figure(figsize=(10, 10))
     plt.rcParams.update({'font.size': 16})
-    print("vmin", vmin, vmax)
     if vmin != 0:
         norm = colors.TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax) if (vmin is not None and vmax is not None) else colors.CenteredNorm()
     else:
@@ -82,6 +81,7 @@ def plot_single(true1, path, cmap="jet", vmin=None, vmax=None):
     ax.set_yticks([])
     plt.savefig(path, dpi=150, bbox_inches='tight')
     plt.close()
+
 
 def plot_observed_only_with_scatter(data, x_idx, y_idx, ax, cmap='jet'):
     # extract the value at each observation
@@ -106,8 +106,8 @@ def plot_inversion_result(x0, x, true_y, y, x_pred, loss_type, index, x_idx, y_i
         true_y.squeeze().cpu().numpy(),            # ground truth output
         x.squeeze().cpu().numpy(),                 # ground truth input
         y.squeeze().cpu().numpy(),                 # forward prediction
-        x_pred.detach().squeeze().cpu().numpy(),    # inversion result
-        np.abs(x.squeeze().cpu().numpy() - x_pred.detach().squeeze().cpu().numpy())
+        x_pred,    # inversion result
+        np.abs(x.squeeze().cpu().numpy() - x_pred)
     ]
     titles = [
         r'Initial Guess ($a_0$)',
@@ -135,7 +135,6 @@ def plot_inversion_result(x0, x, true_y, y, x_pred, loss_type, index, x_idx, y_i
         # vmin, vmax = data.min(), data.max()
         vmin = np.percentile(data, 0.01)
         vmax = np.percentile(data, 99.99)
-        print("vmin", vmin, "vmax", vmax)
         norm = colors.Normalize(vmin=vmin, vmax=vmax)
 
         if i in (1, 3):  # only observed points
@@ -150,6 +149,11 @@ def plot_inversion_result(x0, x, true_y, y, x_pred, loss_type, index, x_idx, y_i
             ax.set_aspect('equal')
 
         else:  # full‐field image
+            # vmin = -0.49
+            # vmax = 0.49
+            vmin = np.percentile(data, 0.01)
+            vmax = np.percentile(data, 99.99)
+            norm = colors.Normalize(vmin=vmin, vmax=vmax)
             im = ax.imshow(
                 data,
                 cmap='jet' if i<5 else 'magma',
@@ -166,58 +170,120 @@ def plot_inversion_result(x0, x, true_y, y, x_pred, loss_type, index, x_idx, y_i
 
     plt.tight_layout()
     if loss_type == "JAC" and top_subsampling == False:
-        plt.savefig(f"inversion_result_{loss_type}_{num_vec}_{initial_guess}/inversion_result_{loss_type}_{index}_{iter}.png")
+        plt.savefig(f"inversion_result_{loss_type}_{num_vec}_{initial_guess}_NGD/inversion_result_{loss_type}_{index}_{iter}.png")
     elif loss_type == "JAC" and top_subsampling == True:
-        plt.savefig(f"inversion_result_{loss_type}_{num_vec}_{initial_guess}_top/inversion_result_{loss_type}_{index}_{iter}.png")
+        plt.savefig(f"inversion_result_{loss_type}_{num_vec}_{initial_guess}_top_NGD/inversion_result_{loss_type}_{index}_{iter}.png")
     elif loss_type != "JAC" and top_subsampling == False:
-        plt.savefig(f"inversion_result_{loss_type}_{initial_guess}/inversion_result_{loss_type}_{index}_{iter}.png")
+        plt.savefig(f"inversion_result_{loss_type}_{initial_guess}_NGD/inversion_result_{loss_type}_{index}_{iter}.png")
     else:
-        plt.savefig(f"inversion_result_{loss_type}_{initial_guess}_top/inversion_result_{loss_type}_{index}_{iter}.png")
+        plt.savefig(f"inversion_result_{loss_type}_{initial_guess}_top_NGD/inversion_result_{loss_type}_{index}_{iter}.png")
     plt.close(fig)
 
-def apply_neumann_bc(u_interior):
+def project_to_2d_plane(posterior_set, center=None):
+    X = np.stack([p.flatten() for p in posterior_set])  # shape: [T, d]
+    X = X - X.mean(axis=0) if center is None else X - center.flatten()
+
+    # PCA or manual basis
+    u, s, vh = np.linalg.svd(X, full_matrices=False)
+    v1, v2 = vh[:2]  # top 2 principal directions
+
+    coords = np.stack([X @ v1, X @ v2], axis=1)  # shape: [T, 2]
+    return coords, v1, v2
+
+def evaluate_loss_surface(model, x0_ref, v1, v2, loss_fn, y_true, i, j, steps=21, span=2.0):
+    grid_vals = np.linspace(-span, span, steps)
+    loss_surface = np.zeros((steps, steps))
+    for i1, a in enumerate(grid_vals):
+        for i2, b in enumerate(grid_vals):
+            x_try = x0_ref.flatten() + a * v1 + b * v2
+            x_try_tensor = torch.tensor(x_try.reshape_as(x0_ref), dtype=torch.float32).to(x0_ref.device).requires_grad_(False)
+            pred = model(x_try_tensor)
+            loss_val = loss_fn(pred[:, :, i, j], y_true[:, :, i, j]).item()
+            loss_surface[i1, i2] = loss_val
+    return grid_vals, loss_surface
+
+def plot_loss_landscape_with_trajectory(grid_vals, loss_surface, coords, out_path):
+    plt.figure(figsize=(8, 6))
+    X, Y = np.meshgrid(grid_vals, grid_vals)
+    plt.contourf(X, Y, loss_surface, levels=50, cmap='viridis')
+    coords = np.array(coords)
+    plt.plot(coords[:, 0], coords[:, 1], color='red', marker='o', markersize=2, label='Gradient Descent Path')
+    plt.xlabel("Direction 1")
+    plt.ylabel("Direction 2")
+    plt.title("Loss Landscape and Optimization Trajectory")
+    plt.legend()
+    plt.colorbar(label="Loss")
+    plt.savefig(out_path, dpi=150)
+    plt.close()
+
+def clamp_boundary(x, min_val=-0.5, max_val=0.5):
+    with torch.no_grad():
+        # bottom_row = x[:, :, -1, :]  # shape: [B, C, W]
+        x = torch.clamp(x, min=min_val, max=max_val)
+    return x
+
+def fisher_approx_vjp_func(model, x0, i, j, sigma, rank=100, groundwater_model=None, forcing_term=None):
     """
-    Same as above but for a PyTorch tensor.
+    Approximate Fisher Information Matrix using orthonormal probing vectors and torch.func.vjp.
+
+    Args:
+        model: Callable f(x) that returns shape [1, 1, H, W]
+        x0: Tensor with shape [1, 1, H, W] and requires_grad=True
+        i, j: Tensors of shape [m], indicating observed locations
+        sigma: observation noise std
+        rank: number of probing vectors
+
+    Returns:
+        Q: Tensor of shape [p, r] such that F ≈ (1/σ²) Q Qᵀ
     """
-    N, M = 126, 126
-    u = u_interior.new_zeros((N+2, M+2))
-    u[1:-1, 1:-1] = u_interior.squeeze()[1:-1, 1:-1]
+    device = x0.device
+    p = x0.numel()
+    m = i.numel()
+    # rank = min(rank, m)
+    Q_list = []   
 
-    # top row:  
-    u[0, 1:-1]  = 2*u[1, 1:-1] - u[2, 1:-1]  
-    # bottom row:  
-    u[-1, 1:-1] = 2*u[-2, 1:-1] - u[-3, 1:-1]  
-    # left col:  
-    u[1:-1, 0]  = 2*u[1:-1, 1]   - u[1:-1, 2]  
-    # right col:  
-    u[1:-1, -1] = 2*u[1:-1, -2]  - u[1:-1, -3]  
+    # Step 1: Generate orthonormal probing vectors V ∈ R^{m × r}
+    V_raw = torch.randn(m, rank, device=device)
+    V, _ = torch.linalg.qr(V_raw)
+    # V = V / sigma
+
+    # Step 2: Define function from parameters to m-dimensional observed output
+    def obs_model(x_flat):
+        x = x_flat.view_as(x0)
+        if loss_type == "Devito":
+            out = model(x, f)
+        else:
+            out = model(x)  # [1, 1, H, W]
+        return out[0, 0, i, j]  # shape: [m] 
+
+    # Step 3: Compute VJPs for each v_k ∈ R^m
+    for k in range(rank):
+        v_k = V[:, k]
+        x_probe = x0.detach().clone().requires_grad_(True)
+        
+        if loss_type == "Devito":
+            p_fwd = groundwater_model.eval_fwd_op(forcing_term, x_probe.detach().cpu(), return_array=False) #[..., i, j]
+            probe_np = np.zeros((128,128))
+            probe_np[i.cpu().numpy(), j.cpu().numpy()] = v_k.detach().cpu().numpy()
+            grad = groundwater_model.compute_gradient(
+                        x_probe.detach().cpu(), probe_np, p_fwd
+                    )                                     # [d,d]
+            q_k = torch.tensor(grad, device=x_probe.device).reshape(-1)
+            print(f"‖q_k‖ = {q_k.norm().item()}")
+        else:
+            _, pullback = torch.func.vjp(obs_model, x_probe.flatten())
+            q_k = pullback(v_k)[0]  # tuple output → take [0]; shape: [p]
+            print(f"‖q_k‖ = {q_k.norm().item()}")
+        Q_list.append(q_k)
+
+    Q = torch.stack(Q_list, dim=1)  # shape [p, r]
+    print("Q shape:", Q.shape)  # Should be [p, rank], e.g. [16384, 100]
+
+    return Q
 
 
-    u[0, 0]      = u[1, 1]
-    u[0, -1]     = u[1, -2]
-    u[-1, 0]     = u[-2, 1]
-    u[-1, -1]    = u[-2, -2]
-
-    return u.reshape(1, 1, 128, 128)
-
-def backtracking_step(x0, loss_fn, mixed_grad, base_lr,
-                      c=1e-4, beta=0.95, max_ls_iters=5):
-    loss0 = loss_fn(x0)
-    g_dot = torch.dot(mixed_grad.flatten(), mixed_grad.flatten())
-    step = base_lr
-
-    for _ in range(max_ls_iters):
-        x_cand   = x0 - step * mixed_grad
-        loss_cand = loss_fn(x_cand)
-        if loss_cand <= loss0 - c * step * g_dot:
-            print(loss_cand,  loss0, c * step * g_dot)
-            return step      # <— only the step size
-        step *= beta
-
-    return base_lr            # fallback
-
-def least_squares_posterior_estimation_fisher(model, input_data, true_data, learning_rate,
-                                       batch_num, num_iterations=500, prior=None, i=None, j=None):
+def least_squares_posterior_estimation_fisher(model, input_data, true_data, learning_rate, reg,
+                                       batch_num, groundwater_model, forcing_term, num_iterations=500, prior=None, i=None, j=None):
     if loss_type != "Devito":
         model.eval()
     mse_loss = torch.nn.MSELoss()
@@ -227,28 +293,8 @@ def least_squares_posterior_estimation_fisher(model, input_data, true_data, lear
     losses, inversion_MSEs, regs, ssims, infty_norm = [], [], [], [], []
     loss_data_iter = []
     start_time = time.time()
-
-    def conjugate_gradient(fvp_fn, b, max_iter=10, tol=1e-10):
-        x = torch.zeros_like(b)
-        r = b.clone()
-        p = r.clone()
-        rs_old = torch.dot(r.flatten(), r.flatten())
-
-        for _ in range(max_iter):
-            Ap = fvp_fn(p)
-            Ap = Ap.detach()
-            alpha = rs_old / (torch.dot(p.flatten(), Ap.flatten()) + 1e-8)
-            x += alpha * p
-            r -= alpha * Ap
-            rs_new = torch.dot(r.flatten(), r.flatten())
-
-            if torch.sqrt(rs_new) < tol:
-                break
-
-            p = r + (rs_new / rs_old) * p
-            rs_old = rs_new
-
-        return x
+    sigma2 = noise_std ** 2  # from your config, e.g., noise_std = 0.2
+    lambda_mix = 1.0
 
     for iteration in range(num_iterations):
         x0.grad = None
@@ -267,74 +313,104 @@ def least_squares_posterior_estimation_fisher(model, input_data, true_data, lear
             extracted_output = output[:, :, i, j]
             extracted_target = true_data[:, :, i, j]
 
-        loss = mse_loss(extracted_output.squeeze(), extracted_target.squeeze())
-        reg = gradient_penalty(x0)
-        loss_total = loss + alpha * reg
-        loss_total.backward()
-
-        sigma2 = noise_std ** 2
-
-        def fisher_vec_prod(v):
-            v = v.detach().requires_grad_(True)
-            # Compute Jv
-            jvp_out = torch.autograd.functional.jvp(lambda x: model(x)[..., i, j].flatten(),
-                                                    (x0,), (v,), create_graph=True)[1]
-            # Scale by observation precision matrix: (1/σ²)
-            weighted = (jvp_out / sigma2).flatten()
-            # Now compute JT (1/σ² Jv)
-            fisher_product = torch.autograd.grad((weighted @ jvp_out.flatten()), x0, retain_graph=True)[0]
-            return fisher_product
+        # loss = mse_loss(extracted_output.squeeze(), extracted_target.squeeze())
+        # if reg == True:
+        #     reg = gradient_penalty(x0)
+        #     # reg = torch.norm(x0.flatten(), p=2)**2
+        # else:
+        #     reg = torch.tensor(0)
+        # loss_total = loss + alpha * reg
 
 
-        def randomized_fisher_approx(fvp_fn, x0, rank=200, n_iter=2):
-            n = x0.numel()
-            device = x0.device
-            Omega = torch.randn(n, rank, device=device)
-            Y = Omega
+        #######################
+        # Add 
+        #######################
 
-            for _ in range(n_iter):
-                Z = []
-                for i in range(rank):
-                    v = Y[:, i].reshape_as(x0)
-                    Fv = fvp_fn(v)
-                    Z.append(Fv.reshape(-1))
-                Y = torch.stack(Z, dim=1)
+        # 1) CG solver (no graph, small damping for stability)
+        def cg(A_mv, b, tol=1e-6, maxiter=20):
+            x = torch.zeros_like(b)
+            r = b - A_mv(x)
+            p = r.clone()
+            rs = torch.dot(r,r)
+            for _ in range(maxiter):
+                Ap = A_mv(p)
+                α  = rs / (torch.dot(p, Ap) + 1e-12)
+                x += α*p
+                r -= α*Ap
+                rs_new = torch.dot(r,r)
+                if torch.sqrt(rs_new) < tol: break
+                p = r + (rs_new/rs)*p
+                rs = rs_new
+            return x
 
-            Q, _ = torch.linalg.qr(Y)
+        # 2) Build your matvec for (JᵀJ + λI)
+        def make_matvec(model, x0, i, j, σ2=1.0, λ=1e-3):
+            x_flat0 = x0.detach().clone().requires_grad_(True).flatten()
+            def res(xf):
+                x = xf.view_as(x0)
+                pred = model(x)[0,0,i,j]
+                return (pred - extracted_target) / σ2   # residual vector ∈ ℝᵐ
 
-            B = torch.zeros(rank, rank, device=device)
-            for i in range(rank):
-                vi = Q[:, i].reshape_as(x0)
-                Fvi = fvp_fn(vi).reshape(-1)
-                for j in range(i, rank):
-                    vj = Q[:, j].reshape(-1)
-                    B[i, j] = torch.dot(Fvi, vj)
-                    if i != j:
-                        B[j, i] = B[i, j]
+            def A_mv(v):
+                # Jv via forward‐mode
+                _, jv = torch.autograd.functional.jvp(res, (x_flat0,), (v,), create_graph=False)
+                jv = jv.detach()
+                # Jᵀ (Jv) via VJP
+                _, pull = torch.func.vjp(res, x_flat0)
+                jTJv, = pull(jv)
+                return jTJv.detach() + λ*v
 
-            return Q, B
+            return A_mv, x_flat0
 
-        # Compute gradient
-        g = x0.grad.detach().clone().reshape(-1)
+        # 3) One NG step in your loop:
+        A_mv, x_flat0 = make_matvec(model, x0, i, j, σ2=noise_std**2, λ=0.)
 
-        # Approximate F ≈ Q B Q^T
-        Q, B = randomized_fisher_approx(fisher_vec_prod, x0, rank=150, n_iter=5)
+        # compute gradient g = ∇½‖r‖²
+        def loss_fn(xf):
+            r = ((model(xf.view_as(x0))[0,0,i,j] - extracted_target) / (noise_std**2)).squeeze()
+            print(r.shape)
+            return 0.5*torch.dot(r,r)
+        loss_total = loss_fn(x_flat0)
+        g = torch.autograd.grad(loss_total, x_flat0)[0].detach()
 
-        # Invert B
-        B_inv = torch.linalg.inv(B)
-
-        # Compute natural gradient: v = Q B⁻¹ Qᵀ g
-        v = Q @ (B_inv @ (Q.T @ g))  # shape: [n]
-        natural_grad = v.reshape_as(x0)
-
-        # Apply update
+        # solve (JᵀJ + λI) η = −g
         with torch.no_grad():
-            x0 -= learning_rate * natural_grad
+            η = cg(A_mv, -g, tol=1e-5, maxiter=20).view_as(x0)
+            print("step‐norm =", η.norm().item())     # should now be nonzero
+            x0 -= learning_rate * η
             x0.requires_grad_(True)
-            # apply_neumann_bc(x0)
-            x0.data = torch.clamp(x0.data, min= prior.min() * 1.3, max= prior.max() * 1.3)
-            
 
+        ########################
+        # Option 2: Low-rank ver
+        ########################
+        # # 1) forward & loss under no_grad if possible OR with grads if reg needs it
+        # x0.grad = None
+        # loss_total.backward()               # only once per iteration
+        # g = x0.grad.detach().flatten()
+        # print("‖g‖ =", g.norm().item())
+        # x0.grad.zero_()
+
+        # # 2) VJP on a fresh graph
+        # x0_probe = x0.detach().clone().requires_grad_(True)
+        # if loss_type == "Devito":
+        #     Q = fisher_approx_vjp_func(gw_torch_model, x0_probe, i, j, sigma=noise_std, rank=500, groundwater_model= groundwater_model, forcing_term=forcing_term)
+        # else:
+        #     Q = fisher_approx_vjp_func(model, x0_probe, i, j, sigma=noise_std, rank=150)
+
+        # # 3) natural-gradient update under no_grad
+        # with torch.no_grad():
+        #     coeffs = Q.T @ g           # shape [r]
+        #     print("Q^T g:", coeffs)
+        #     B = Q.T @ Q
+        #     nat_grad = Q @ torch.linalg.solve(B, Q.T @ g)
+        #     print("raw step‐norm =", nat_grad.norm().item())
+        #     x0 -= learning_rate * ((1-lambda_mix)*g.reshape_as(x0) + lambda_mix*nat_grad.reshape_as(x0))
+        #     x0.requires_grad_(True)
+        #     # x0.data = torch.clamp(x0.data, min= prior.min() * 1.3, max= prior.max() * 1.3)
+        
+        # 5. Stream snapshot to HDF5
+        snapshot = x0.detach().cpu().numpy().squeeze()
+        dset[batch_num, iteration, :, :] = snapshot
 
         diff = x0 - prior
         inversion_MSE = torch.norm(diff) / torch.norm(prior)
@@ -352,203 +428,61 @@ def least_squares_posterior_estimation_fisher(model, input_data, true_data, lear
             "elapsed_s":     elapsed,
             "loss":          loss_total.item(),
             "inversion_MSE": inversion_MSE.item(),
-            "regularization":reg.item(),
+            # "regularization":reg.item(),
             "SSIM":          ssim_value
         })
 
-        if batch_num < 2 and iteration % 50 == 0:
+        if batch_num < 2 and iteration % 1 == 0:
             gradient = g.cpu().squeeze().reshape(128,128)
             plt.imshow(gradient.numpy(), cmap='viridis')
             plt.colorbar(label='Gradient Value', shrink=0.8)
             plt.title('Gradient w.r.t. Input x0')
             if loss_type == "JAC":
-                plt.savefig(f'inversion_result_{loss_type}_{num_vec}_{initial_guess}/iter={batch_num}_gradient_{iteration}.png')
-                plot_single(x0.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{num_vec}_{initial_guess}/iter={batch_num}_inversion_{iteration}.png')
-                plot_single(output.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{num_vec}_{initial_guess}/iter={batch_num}_inversion_{iteration}_output.png')
-                plot_inversion_result(zero_X, x, y, output.detach().cpu().squeeze(), x0.clone().detach().cpu(), loss_type, batch_num, i, j, iteration)
+                plt.savefig(f'inversion_result_{loss_type}_{num_vec}_{initial_guess}_NGD/iter={batch_num}_gradient_{iteration}.png')
+                plot_single(snapshot, f'inversion_result_{loss_type}_{num_vec}_{initial_guess}_NGD/iter={batch_num}_inversion_{iteration}.png')
+                # plot_single(output.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{num_vec}_{initial_guess}_NGD/iter={batch_num}_inversion_{iteration}_output.png')
+                plot_inversion_result(zero_X, x, y, output.detach().cpu().squeeze(), snapshot, loss_type, batch_num, i, j, iteration)
             elif top_subsampling:
-                plt.savefig(f'inversion_result_{loss_type}_{initial_guess}_top/iter={batch_num}_gradient_{iteration}.png')
-                plot_single(x0.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{initial_guess}_top/iter={batch_num}_inversion_{iteration}.png')
-                plot_single(output.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{initial_guess}_top/iter={batch_num}_inversion_{iteration}_output.png')
-                plot_inversion_result(zero_X, x, y, output.detach().cpu().squeeze(), x0.clone().detach().cpu(), loss_type, batch_num, i, j, iteration)
+                plt.savefig(f'inversion_result_{loss_type}_{initial_guess}_top_NGD/iter={batch_num}_gradient_{iteration}.png')
+                plot_single(snapshot, f'inversion_result_{loss_type}_{initial_guess}_top_NGD/iter={batch_num}_inversion_{iteration}.png')
+                # plot_single(output.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{initial_guess}_top_NGD/iter={batch_num}_inversion_{iteration}_output.png')
+                plot_inversion_result(zero_X, x, y, output.detach().cpu().squeeze(), snapshot, loss_type, batch_num, i, j, iteration)
             else:
-                plt.savefig(f'inversion_result_{loss_type}_{initial_guess}/iter={batch_num}_gradient_{iteration}.png')
-                plot_single(x0.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{initial_guess}/iter={batch_num}_inversion_{iteration}.png')
-                plot_single(output.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{initial_guess}/iter={batch_num}_inversion_{iteration}_output.png')
-                plot_inversion_result(zero_X, x, y, output.detach().cpu().squeeze(), x0.clone().detach().cpu(), loss_type, batch_num, i, j, iteration)
+                plt.savefig(f'inversion_result_{loss_type}_{initial_guess}_NGD/iter={batch_num}_gradient_{iteration}.png')
+                plot_single(snapshot, f'inversion_result_{loss_type}_{initial_guess}_NGD/iter={batch_num}_inversion_{iteration}.png')
+                # plot_single(output.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{initial_guess}_NGD/iter={batch_num}_inversion_{iteration}_output.png')
+                plot_inversion_result(zero_X, x, y, output.detach().cpu().squeeze(), snapshot, loss_type, batch_num, i, j, iteration)
 
-        print(f"Iteration {iteration}, Loss: {loss_total.item():.4e}", inversion_MSE.item(), ssim_value)
+        print(f"Iteration {iteration}, Loss: {loss_total.item():.4e}", inversion_MSE.item(), ssim_value, flush=True)
 
         losses.append(loss_total.item())
         inversion_MSEs.append(inversion_MSE.item())
-        regs.append(reg.item())
+        # regs.append(reg.item())
         ssims.append(ssim_value)
-        posterior_set.append(x0.clone().detach().cpu().numpy())
 
-    return posterior_set, losses, inversion_MSEs, regs, ssims, output.detach().cpu().squeeze(), loss_data_iter, i, j
-
-# ----------------------
-# Least Squares Posterior Estimation (with per-iteration timing)
-# ----------------------
-def least_squares_posterior_estimation(model, input_data, true_data, learning_rate,
-                                       batch_num, num_iterations=500, prior=None, i=None, j=None):
-    if loss_type != "Devito":
-        model.eval()
-    mse_loss = torch.nn.MSELoss()
-
-    x0 = input_data.clone().detach().requires_grad_(True).to(device)
-    posterior_set = []
-    optimizer = torch.optim.Adam([x0], lr=learning_rate)
-
-    losses, inversion_MSEs, regs, ssims, infty_norm = [], [], [], [], []
-    loss_data_iter = []
-
-    start_time = time.time()
-
-
-
-    for iteration in range(num_iterations):
-        # optimizer.zero_grad()
-        x0.grad = None
-        if loss_type == "Devito":
-            squeezed_x0 = x0.squeeze()
-            squeezed_x0.retain_grad()
-            output = model(squeezed_x0)
-        else:
-            output = model(x0)
-
-        # extract and compute loss
-        if loss_type == "Devito":
-            extracted_output = output[i, j]
-            extracted_target = true_data[:, :, i, j]
-        else:
-            extracted_output = output[:, :, i, j]
-            extracted_target = true_data[:, :, i, j]
-            print("extracted output", extracted_output.shape)
-
-        def loss_fn(x):
-            """
-            x: torch.Tensor shaped like x0 (e.g. [1,1,H,W]) — assumed on the correct device.
-            Returns: scalar float = MSE(observed) + α·gradient_penalty(x)
-            """
-            with torch.no_grad():
-                # 1) forward
-                target = true_data[0, 0, i, j]
-                if loss_type == "Devito":
-                    # Devito model expects [H,W] → returns [H,W]
-                    out = model(x.squeeze())
-                    # extract observed entries
-                    pred = out[i, j]
-                else:
-                    # FNO / PyTorch path: [1,1,H,W] → [1,1,H,W]
-                    out = model(x)
-                    pred = out[0, 0, i, j]
-
-                # 2) data misfit
-                data_misfit = mse_loss(pred, target)
-
-                # 4) combine and return as Python float
-                return float(data_misfit.item())
-
-        loss = mse_loss(extracted_output.squeeze(), extracted_target.squeeze())
-        reg = gradient_penalty(x0)
-        loss_total = loss + alpha * reg
-        loss_total.backward()
-        g = x0.grad.detach()
-        # optimizer.step()
-        if iteration % decay_interval == 0 and iteration > 0:
-            # re-tune the step once in a cheap way
-            tuned_lr = backtracking_step(
-                x0, loss_fn, g, learning_rate,
-                c=1e-4, beta=0.7, max_ls_iters=2
-            )
-            learning_rate = tuned_lr  # update your base for the next block
-            print("new lr", tuned_lr)
-        # just a fixed step
-        with torch.no_grad():
-            x0 -= learning_rate * g
-            x0.requires_grad_(True)
-
-        # metrics (L2)
-        diff = x0 - prior
-        inversion_MSE = torch.norm(diff, p=2) / torch.norm(prior)
-        input_numpy = x0.detach().cpu().squeeze().numpy()
-        prior_numpy = prior.detach().cpu().squeeze().numpy()
-        ssim_value = ssim(input_numpy.astype(np.float64),
-                          prior_numpy.astype(np.float64),
-                          data_range=float(input_numpy.max() - input_numpy.min()))
-
-        # elapsed time
-        now = time.time()
-        elapsed = now - start_time
-
-        # record
-        loss_data_iter.append({
-            "sample":        batch_num,
-            "iteration":     iteration,
-            "elapsed_s":     elapsed,
-            "loss":          loss_total.item(),
-            "inversion_MSE": inversion_MSE.item(),
-            "regularization":reg.item(),
-            "SSIM":          ssim_value
-        })
-
-        # if batch_num < 2 and iteration % 50 == 0 and loss_type != "Devito":
-        if batch_num < 2 and iteration % 1 == 0:
-            gradient = x0.grad.detach().cpu().squeeze()  # shape: [H, W] or similar
-            plt.imshow(gradient.numpy(), cmap='viridis')
-            plt.colorbar(label='Gradient Value', shrink=0.8)
-            plt.title('Gradient w.r.t. Input x0')
-            if loss_type == "JAC":
-                plt.savefig(f'inversion_result_{loss_type}_{num_vec}_{initial_guess}/iter={batch_num}_gradient_{iteration}.png')
-                plot_single(x0.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{num_vec}_{initial_guess}/iter={batch_num}_inversion_{iteration}.png')
-                plot_single(output.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{num_vec}_{initial_guess}/iter={batch_num}_inversion_{iteration}_output.png')
-                plot_inversion_result(zero_X, x, y, output.detach().cpu().squeeze(), x0.clone().detach().cpu(), loss_type, batch_num, i, j, iteration)
-            elif top_subsampling == True:
-                plt.savefig(f'inversion_result_{loss_type}_{initial_guess}_top/iter={batch_num}_gradient_{iteration}.png')
-                plot_single(x0.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{initial_guess}_top/iter={batch_num}_inversion_{iteration}.png')
-                plot_single(output.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{initial_guess}_top/iter={batch_num}_inversion_{iteration}_output.png')
-                plot_inversion_result(zero_X, x, y, output.detach().cpu().squeeze(), x0.clone().detach().cpu(), loss_type, batch_num, i, j, iteration)
-            else:
-                plt.savefig(f'inversion_result_{loss_type}_{initial_guess}/iter={batch_num}_gradient_{iteration}.png')
-                plot_single(x0.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{initial_guess}/iter={batch_num}_inversion_{iteration}.png')
-                plot_single(output.detach().cpu().squeeze(), f'inversion_result_{loss_type}_{initial_guess}/iter={batch_num}_inversion_{iteration}_output.png')
-                plot_inversion_result(zero_X, x, y, output.detach().cpu().squeeze(), x0.clone().detach().cpu(), loss_type, batch_num, i, j, iteration)
-
-        print(f"Iteration {iteration}, Loss: {loss_total.item():.4e}", inversion_MSE.item(), ssim_value)
-
-        # store for plotting later
-        losses.append(loss_total.item())
-        inversion_MSEs.append(inversion_MSE.item())
-        regs.append(reg.item())
-        ssims.append(ssim_value)
-        posterior_set.append(x0.clone().detach().cpu().numpy())
-
-    return posterior_set, losses, inversion_MSEs, regs, ssims, output.detach().cpu().squeeze(), loss_data_iter, i, j
-
-
+    return losses, inversion_MSEs, regs, ssims, output.detach().cpu().squeeze(), loss_data_iter, i, j
 
 # ----------------------
 # Main Script for Inversion on Multiple Samples (batch_size=1)
 # ----------------------
 if __name__ == "__main__":
     # Set up device and random seed.
+    torch.cuda.empty_cache()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.manual_seed(42)
     print(f"Using device: {device}")
 
-
     # Define simulation parameters.
-    num_vec = 200
+    num_vec = 100
     loss_type = "MSE"  # or "JAC" "MSE" "Devito"
-    GRF = 3
-    alpha = 0. #0.05
+    alpha = 0 #1e-6 #0.05
     noise_std = 1.0 #0.3
     initial_guess = "smooth" # "smooth", "noisy"
     sub_sampling = True
     top_subsampling = False
     full_obs = False
-    decay_interval = 20
+    reg = False
+    # damping_lambda = 0 #5e-7
 
     if initial_guess == "prior_mean":
         learning_rate = 0.001 # 0.0001 (grf, fullobs) #0.005 (noisy, fullobs) #0.00005  # Inversion learning rate.
@@ -557,11 +491,12 @@ if __name__ == "__main__":
         num_epoch = 2001 #1001
         offset=130
     elif initial_guess == "smooth":
-        learning_rate = 1 # 0.0001 (grf, fullobs) #0.005 (noisy, fullobs) #0.00005  # Inversion learning rate.
-        # num_sample = 3 #50
-        # num_sample_prior = 100
-        # num_epoch = 500 #2201 #2001 #1001
+        learning_rate = 1e-7 #0.5 #100 #0.0001 # 0.0001 (grf, fullobs) #0.005 (noisy, fullobs) #0.00005  # Inversion learning rate.
+        num_sample = 1 #3 #50
+        num_sample_prior = 100
+        num_epoch = 30000 #35001 #500 #2201 #2001 #1001
         offset=128
+        GRF = 2
         if GRF == 1:
             kernel_size = 45 #55 #(grf, fullobs)
             sigma = 10.0 #100.0 # (grf, fullobs)
@@ -569,15 +504,8 @@ if __name__ == "__main__":
             kernel_size = 55
             sigma = 100.0
         elif GRF == 3:
-            kernel_size = 19
-            sigma = 500.0
-
-        # learning_rate = 40 #100 #0.0001 # 0.0001 (grf, fullobs) #0.005 (noisy, fullobs) #0.00005  # Inversion learning rate.
-        num_sample = 1 #3 #50
-        num_sample_prior = 100
-        num_epoch = 2000 #500 #2201 #2001 #1001
-
-
+            kernel_size = 55
+            sigma = 50.0
     
     
     # Load configuration and dataset. and checkpoint
@@ -588,11 +516,7 @@ if __name__ == "__main__":
         config = "output/n=128_e=10_m=FNO_s=RFS_l=JAC_20250512_144619/config.yaml"
         ckpt_path = "checkpoints/n=128_e=10_m=FNO_s=RFS_l=JAC_20250512_144619/n=128_e=10_m=FNO_s=RFS_l=JAC_epoch=249_val_rel_l2_loss=0.0005.ckpt"
     elif loss_type == "JAC" and num_vec == 50:
-        # config = load_config(f"output/n=128_e=8_m=FNO_s=RFS_l=JAC_lamba=0.5_20250421_221953/config.yaml")
-        # config = load_config("output/Darcy_training_20250507_175531/config.yaml")
         config = load_config("output/n=128_e=50_m=FNO_s=RFS_l=JAC_20250512_141821/config.yaml")
-        # ckpt_path = f"checkpoints/n=128_e=8_m=FNO_s=RFS_l=JAC_lamba=0.5_20250421_221953/last.ckpt"
-        # ckpt_path = f"checkpoints/Darcy_training_20250507_175531/Darcy_training_epoch=149_val_rel_l2_loss=0.0082.ckpt"
         ckpt_path = f"checkpoints/n=128_e=50_m=FNO_s=RFS_l=JAC_20250514_151731/n=128_e=50_m=FNO_s=RFS_l=JAC_epoch=249_val_rel_l2_loss=0.0004.ckpt"
     elif loss_type == "JAC" and num_vec == 100:
         # config = load_config("configs/eigenvectors/e_100.yaml")
@@ -602,9 +526,6 @@ if __name__ == "__main__":
     elif loss_type == "JAC" and num_vec == 128:
         config = load_config("configs/eigenvectors/e=100_data=270.yaml")
         ckpt_path = f"checkpoints/n=270_e=100_m=FNO_s=RFS_l=JAC_20250531_123550/n=270_e=100_m=FNO_s=RFS_l=JAC_epoch=146_val_rel_l2_loss=0.0004.ckpt"
-    elif loss_type == "JAC" and num_vec == 200:
-        config = load_config("configs/eigenvectors/e_200.yaml")
-        ckpt_path = f"checkpoints/n=400_e=200_m=FNO_s=RFS_l=JAC_20250615_133916/n=400_e=200_m=FNO_s=RFS_l=JAC_epoch=190_val_rel_l2_loss=0.0170.ckpt"
     elif loss_type == "RAND":
         config = load_config("output/n=128_e=8_m=FNO_s=RAND_l=JAC_20250421_124311/config.yaml")
         ckpt_path = f"checkpoints/n=128_e=8_m=FNO_s=RAND_l=JAC_20250421_125959/last.ckpt"
@@ -620,18 +541,10 @@ if __name__ == "__main__":
             random.setstate(state["random_state"])
 
     # Load Data
-    if num_vec == 200:
-        print("200!")
-        data_config = load_config("output/n=400_e=200_m=FNO_s=RFS_l=JAC_20250615_133916/config.yaml")
-        print(data_config.experiment.dataset_type, data_config.data_settings)
-        dataset = get_dataset(data_config.experiment.dataset_type, data_config.data_settings)
-        dataloader = dataset.get_dataloader(offset=414, limit=num_sample)
-        prior_dataloader = dataset.get_dataloader(offset=410, limit=num_sample_prior)
-    else:
-        data_config = load_config("output/n=128_e=50_m=FNO_s=RFS_l=JAC_20250512_141821/config.yaml")
-        dataset = get_dataset(data_config.experiment.dataset_type, data_config.data_settings)
-        dataloader = dataset.get_dataloader(offset=offset, limit=num_sample)
-        prior_dataloader = dataset.get_dataloader(offset=offset, limit=num_sample_prior)
+    data_config = load_config("output/n=128_e=50_m=FNO_s=RFS_l=JAC_20250512_141821/config.yaml")
+    dataset = get_dataset(data_config.experiment.dataset_type, data_config.data_settings)
+    dataloader = dataset.get_dataloader(offset=offset, limit=num_sample)
+    prior_dataloader = dataset.get_dataloader(offset=offset, limit=num_sample_prior)
 
     # Save RNG state
     with open("rng_state_devito.pkl", "wb") as f:
@@ -651,15 +564,15 @@ if __name__ == "__main__":
     final_ssim_list = []
     final_l2_list = []
 
-
+    print("saving h5 files...")
     if loss_type == "JAC" and top_subsampling == False :
-        fname = f'inversion_history_{loss_type}_{num_vec}_{initial_guess}.h5'
+        fname = f'inversion_history_{loss_type}_{num_vec}_{initial_guess}_NGD.h5'
     elif loss_type == "JAC" and top_subsampling == True:
-        fname = f'inversion_history_{loss_type}_{num_vec}_{initial_guess}_top.h5'
+        fname = f'inversion_history_{loss_type}_{num_vec}_{initial_guess}_top_NGD.h5'
     elif loss_type != "JAC" and top_subsampling == False :
-        fname = f'inversion_history_{loss_type}_{initial_guess}.h5'
+        fname = f'inversion_history_{loss_type}_{initial_guess}_NGD.h5'
     else:
-        fname = f'inversion_history_{loss_type}_{initial_guess}_top.h5'
+        fname = f'inversion_history_{loss_type}_{initial_guess}_top_NGD.h5'
     # If it already exists, delete it (and any stale lock)
     if os.path.exists(fname):
         os.remove(fname)
@@ -675,6 +588,8 @@ if __name__ == "__main__":
         compression_opts=4,
         chunks=(1, num_epoch, 128, 128)  # chunk by sample
     )
+
+
 
     # Compute prior mean
     if initial_guess == "prior_mean":
@@ -694,6 +609,7 @@ if __name__ == "__main__":
     sample_counter = 0
 
     for batch in dataloader:
+        print("batch", batch)
         x = batch['x'].to(device)
         y = batch['y'].to(device) + torch.randn_like(x) * noise_std
         L = batch['L'].view(-1).to(device)
@@ -707,7 +623,7 @@ if __name__ == "__main__":
             mask[i, j] = True
             coords = mask.nonzero(as_tuple=False)
             num_total = coords.shape[0]
-            subsample_ratio = 1 #0.15
+            subsample_ratio = 1#0.15
             num_subsample = int(subsample_ratio * num_total)
             indices = torch.randperm(num_total)[:num_subsample]
             selected_coords = coords[indices]
@@ -736,7 +652,7 @@ if __name__ == "__main__":
             )
             i = i.reshape(-1)
             j = j.reshape(-1)
-            print("i", i)
+            print("i", i.shape, j.shape)
 
         if loss_type == "Devito":
             # save data
@@ -759,10 +675,7 @@ if __name__ == "__main__":
 
         # initial guess logic …
         if initial_guess == "smooth":
-            # zero_X = apply_gaussian_smoothing(x, kernel_size, sigma)
-            zero_X = torch.ones(x.shape).to(device) * x.amin()
-            zero_X[..., 45:-45] = x.amax()
-            zero_X = zero_X.detach()
+            zero_X = apply_gaussian_smoothing(x, kernel_size, sigma) #+ torch.randn_like(x) * 0.1
         elif initial_guess == "noisy":
             zero_X = x + torch.randn_like(x) * noise_std
         elif initial_guess == "prior_mean":
@@ -771,25 +684,22 @@ if __name__ == "__main__":
 
         if loss_type == "Devito":
             forcing_term = torch.zeros(zero_X.squeeze().shape)
-            groundwater_model = GroundwaterModel(forcing_term.shape[0])
-            model = lambda x: groundwater_model(x, forcing_term)
+            groundwater_model = GroundwaterEquation(forcing_term.shape[0])
+            gw_torch_model = GroundwaterModel(forcing_term.shape[0])
+            model = lambda x: gw_torch_model(x, forcing_term)
+        else:
+            groundwater_model, forcing_term =None, None
 
-        posterior_set, losses, inversion_MSEs, regs, ssims, pred, loss_data_iter, i_idx, j_idx = (
-            least_squares_posterior_estimation(
+
+        losses, inversion_MSEs, regs, ssims, pred, loss_data_iter, i_idx, j_idx = (
+            least_squares_posterior_estimation_fisher(
                 model, zero_X, y,
-                learning_rate, batch_num=sample_counter,
+                learning_rate, reg, groundwater_model=groundwater_model, forcing_term=forcing_term, batch_num=sample_counter,
                 num_iterations=num_epoch, prior=x, i=i, j=j
             )
         )
-
-        # Plot the final inversion result.
-        final_x0 = torch.tensor(posterior_set[-1]).detach()
-        plot_inversion_result(zero_X, x, y, pred, final_x0, loss_type, sample_counter, i_idx, j_idx, num_epoch)
-
-        # posterior_set is a list of length num_epoch, each an 128×128 numpy array.
-        # Write them into the HDF5 at [sample_counter, :, :, :]:
-        arr = np.stack(posterior_set, axis=0).squeeze()   # shape (num_epoch,128,128)
-        dset[sample_counter, :, :, :] = arr
+        
+            
 
         # collect this sample’s iteration‐by‐iteration records
         loss_data_all.extend(loss_data_iter)
@@ -818,3 +728,12 @@ if __name__ == "__main__":
 
     df.to_csv(csv_file, index=False)
     print(f"Loss data saved to {csv_file}")
+
+    # # Convert posterior_set to 2D projection
+    # coords_2d, v1, v2 = project_to_2d_plane(posterior_set)
+    # # Reference point (e.g., initial guess or center)
+    # x0_ref = torch.tensor(posterior_set[0], dtype=torch.float32).to(device)
+    # # Evaluate loss surface
+    # grid_vals, loss_surface = evaluate_loss_surface(model, x0_ref, v1, v2, mse_loss, y, i_idx, j_idx)
+    # # Plot
+    # plot_loss_landscape_with_trajectory(grid_vals, loss_surface, coords_2d, f"loss_landscape_trajectory_{sample_counter}.png")

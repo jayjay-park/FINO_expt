@@ -20,6 +20,8 @@ def main():
     parser = argparse.ArgumentParser(description='GCS FNO Training with PyTorch Lightning')
     parser.add_argument('--config', type=str, default='configs/mse.yaml', help='Path to configuration file')
     args = parser.parse_args()
+
+    print("working directory", os.getcwd())
     
     # Load configuration
     config = load_config(args.config)
@@ -131,9 +133,12 @@ def main():
         max_epochs=config.training_settings.num_epoch,
         logger=loggers,
         callbacks=callbacks,
+        accelerator="gpu",
         log_every_n_steps=1,
         deterministic=True,
         check_val_every_n_epoch=config.visualization_settings.check_val_every_n_epoch,
+        devices=config.training_settings.num_GPU,
+        strategy=config.training_settings.strategy,
         accumulate_grad_batches=config.training_settings.accum_steps,
         enable_checkpointing=config.training_settings.enable_checkpointing,
     )

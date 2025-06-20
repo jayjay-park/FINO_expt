@@ -66,6 +66,7 @@ class NSDataLoader:
         self.num_workers = num_workers
         self.pin_memory = pin_memory
         self.sample_paths = []
+
         for directory in sample_directories:
             for file in os.listdir(os.path.join(directory, 'samples')):
                 if file.endswith('.h5'):

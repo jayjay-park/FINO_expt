@@ -14,11 +14,16 @@ experiment:
 data_settings:
   nx: 128
   ny: 128
-  batch_size: 1
+  batch_size: 50
   eigen_count: 4
   sample_directories:
-    - "/net/slimdata/jayjaydata2/dataset_DARCY"
-    - "/net/slimdata/jayjaydata2/dataset_DARCY2"
+    # - "/net/slimdata/jayjaydata2/dataset_DARCY"
+    # - "/net/slimdata/jayjaydata2/dataset_DARCY2"
+    - "../datasets/datasets/dataset_DARCY_cov1"
+    - "../datasets/datasets/dataset_DARCY_cov2"
+    - "../datasets/datasets/dataset_DARCY_cov3"
+    - "../datasets/datasets/dataset_DARCY_cov4"
+    - "../datasets/datasets/dataset_DARCY_cov5"
 
 model_settings:
   in_channels: 1
@@ -38,16 +43,18 @@ model_settings:
 
 training_settings:
   accum_steps: 1
-  num_epoch: 250
-  num_train: 120
-  num_test: 10
-  num_samples: 120
+  num_epoch: 200
+  num_train: 400
+  num_test: 50
+  num_samples: 400
   shuffle_train: true
   shuffle_test: false
   enable_checkpointing: true
   log_checkpoint: false # log to neptune (cloud)
   checkpoint_interval: 1
   save_top_k: -1
+  num_GPU: 1
+  strategy: "ddp"
 
 visualization_settings:
   save_to_disk: false

@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import pytorch_lightning as pl
-from modulus.models.fno import FNO
+from physicsnemo.models.fno import FNO
 from typing import Dict, Any, Optional, Tuple
 import gc  # Add import for garbage collection
 
