@@ -246,10 +246,23 @@ function full_objective_jvp(x0, dx; config, sim, case0)
     # 2. Create simulators for the three modes. Type: Jutul.Simulator
     sim_forward  = Simulator(case0, mode = :forward, extra_timing = nothing)
     sim_backward = Simulator(case0, mode = :reverse, extra_timing = nothing)  # for ∂F/∂uₙ₋₁
-    sim_param    = Simulator(case0, mode = :sensitivities, extra_timing = nothing)  # for ∂F/∂m
+    # --- define parameter model --- #
+    targets = Jutul.parameter_targets(case0.model)
+    parameter_model = Jutul.adjoint_parameter_model(case0.model, targets)
+    n_prm = Jutul.number_of_degrees_of_freedom(parameter_model)
+    # Note that primary is here because the target parameters are now the primaries for the parameter_model
+    parameter_map, = Jutul.variable_mapper(parameter_model, :primary, targets = targets;)
+
+    state0_map, = Jutul.variable_mapper(case0.model, :primary)
+    n_state0 = Jutul.number_of_degrees_of_freedom(case0.model)
+
+    parameters = Jutul.setup_parameters(case0.model)
+    state0_p = Jutul.swap_variables(state0, parameters, parameter_model, variables = true)
+    parameters_p = Jutul.swap_variables(state0, parameters, parameter_model, variables = false)
+    sim_param    = Simulator(parameter_model, state0 = deepcopy(state0_p), parameters = deepcopy(parameters_p), mode = :sensitivities, extra_timing = nothing)  # for ∂F/∂m
 
     # 3. Compute state sensitivities (the forward JVP) for each time step.
-    state_jvp = forward_rule_jvp(dx, sim_forward, sim_backward, sim_param, states_ref, tstep, forces;
+    state_jvp = forward_rule_jvp(dx, sim_forward, sim_backward, sim_param, states_ref, tstep, case0.forces;
                                  opt_config_u=config, state_ref=states_ref)
 
     # 4. Chain the state sensitivities with the derivative of mass_mismatch.
