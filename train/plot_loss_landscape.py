@@ -37,7 +37,7 @@ print("NGD path shape (after squeeze and slice):", X_ngd.shape)
 print("GD path shape (after squeeze and slice):", X_gd.shape)
 print("Devito path shape (after squeeze and slice):", X_d.shape)
 
-# Stack together to get common 2D subspace
+
 X = np.vstack([X_d]) #X_gd,
 X_mean = X.mean(axis=0)
 X_centered = X - X_mean
