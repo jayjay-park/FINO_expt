@@ -7,7 +7,7 @@ import os
 from concurrent.futures import ProcessPoolExecutor, as_completed, ThreadPoolExecutor
 
 
-class FIMReducedModel(ReducedModel):
+class ASReducedModel(ReducedModel):
     def __init__(self, eigen_value_fraction, eigen_vector_count, simulator_type, noise_std, probe_size):
         self.eigen_value_fraction = eigen_value_fraction
         self.eigen_vector_count = eigen_vector_count
@@ -63,15 +63,26 @@ class FIMReducedModel(ReducedModel):
             
             return eigenvectors, S
 
-    def _compute_single_grad(self, simulator, x_np, probe_2d, p_fwd):
+    
+    def _compute_grad_output(self, sim, x_np, sensors, f):
         """
-        Run in a worker thread. Returns a flat gradient of shape (p,).
+        Gradient of   f_out = mean_{i∈L} μ_i(θ)
         """
-        g = simulator.model.compute_gradient(x_np, probe_2d, p_fwd)  # [d,d]
-        return g.reshape(-1)
+        x_t = torch.tensor(x_np, dtype=torch.float32,
+                        device='cuda', requires_grad=True)
 
+        # forward model (Darcy or PyTorch) → full field μ
+        mu = sim.pytorch_model(x_t, f).view(-1)          # shape (d, d) or flat (p,)
+        sensor_idx_1d = sensors.flatten() # LongTensor of indices
+        print("mu", mu.shape, sensor_idx_1d.shape)
+        f_out = mu[sensor_idx_1d].mean()   # scalar
 
-    def compute_score_matrix(self, simulator, x, L):
+        f_out.backward()
+        out = x_t.grad.detach().cpu().flatten().numpy()
+        print(out.shape)
+        return out
+
+    def compute_active_subspace(self, simulator, x, L):
         """
         Thread-parallel Darcy fallback. Returns Qb of shape [p, r] on CUDA.
         """
@@ -83,12 +94,11 @@ class FIMReducedModel(ReducedModel):
 
         # 2) build your GPU probe matrix [r, p]
         idx = torch.tensor(L, dtype=torch.long, device='cuda')  
-        eps = torch.randn(r, m, device='cuda') * self.noise_std  
-        weights = eps / (self.noise_std**2)                     
+        all_one = torch.ones(r, m, device='cuda')                   
 
         rows = torch.arange(r, device='cuda').unsqueeze(1)      
         probe_flat = torch.zeros((r, p), device='cuda')        
-        probe_flat[rows, idx] = weights                        
+        probe_flat[rows, idx] = all_one                       
 
         # 3) one Darcy forward solve
         x_np, p_fwd = None, None
@@ -106,20 +116,19 @@ class FIMReducedModel(ReducedModel):
         grads_np = np.empty((r, p), dtype=np.float32)
         with ThreadPoolExecutor() as exe:
             futures = {
-                exe.submit(self._compute_single_grad, simulator, x_np, probes_np[i], p_fwd): i
+                exe.submit(self._compute_grad_output, simulator, x_np, probes_np[i], torch.tensor(f)): i
                 for i in range(r)
             }
             for fut in as_completed(futures):
                 i = futures[fut]
                 grads_np[i] = fut.result()
 
+
         # 6) back to GPU, shape [p, r]
         Qb_rows = torch.from_numpy(grads_np).to('cuda')  # [r, p]
         Qb      = Qb_rows.transpose(0, 1)               # [p, r]
         return Qb
 
-
-    
     def plot_decay(self, s, path, title):
         plt.plot(s)
         plt.title(title)

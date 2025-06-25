@@ -61,6 +61,13 @@ def create_reduced_model(reduced_model_type, reduced_model_settings, simulator_t
         from reduced_orders.random import RandomReducedModel
         return RandomReducedModel(reduced_model_settings['eigen_value_fraction'],
                                   reduced_model_settings['eigen_vector_count'], simulator_type)
+    elif reduced_model_type == "AS":
+        from reduced_orders.AS import ASReducedModel
+        return ASReducedModel(reduced_model_settings['eigen_value_fraction'],
+                               reduced_model_settings['eigen_vector_count'], 
+                               simulator_type,
+                               reduced_model_settings['noise_std'],
+                               reduced_model_settings['probe_size'])
     else:
         raise ValueError(f"Unsupported reduced model type: {reduced_model_type}")
 
@@ -109,7 +116,7 @@ def plot_sampling_on_field_simple_blocks(y, L, m_x, m_y, figsize=(6,6)):
     plt.savefig("Observation_O")
 
 
-def generate_dataset(simulator, reduced_model, data_settings, viz_settings, simulator_type):
+def generate_dataset(simulator, reduced_model, data_settings, viz_settings, simulator_type, reduced_model_type):
     data_dir       = data_settings['data_dir']
     plots_dir      = viz_settings['plots_dir']
     num_samples    = data_settings['num_samples']
@@ -123,7 +130,10 @@ def generate_dataset(simulator, reduced_model, data_settings, viz_settings, simu
     os.makedirs(plots_dir, exist_ok=True)
 
     # path for caching modes
-    svd_cache = 'datasets/svd_modes.h5' #os.path.join('/datasets/', 'svd_modes.h5')
+    if reduced_model_type == "AS":
+        svd_cache = 'datasets/AS_svd_modes.h5'
+    elif reduced_model_type == "FIM": 
+        svd_cache = 'datasets/svd_modes.h5' #os.path.join('/datasets/', 'svd_modes.h5')
 
     # --- build L once (block-wise jitter) ---
     d = int(np.sqrt(simulator.domain))
@@ -156,7 +166,10 @@ def generate_dataset(simulator, reduced_model, data_settings, viz_settings, simu
         for b in range(num_subsamples):
             print(f"Computing Q_b for subsample {b+1}/{num_subsamples}", flush=True)
             x_b = simulator.sample().detach().cpu().numpy()
-            Qb  = reduced_model.compute_score_matrix(simulator, x_b, L)  # [p, r]
+            if reduced_model_type == "FIM":
+                Qb  = reduced_model.compute_score_matrix(simulator, x_b, L)  # [p, r]
+            elif reduced_model_type == "AS":
+                Qb  = reduced_model.compute_active_subspace(simulator, x_b, L)  # [p, r]
             Q_list.append(Qb)
 
         Q_tilde = torch.cat(Q_list, dim=1)  # [p, r * num_subsamples]
@@ -302,3 +315,4 @@ def generate_dataset(simulator, reduced_model, data_settings, viz_settings, simu
                 pbar.update(1)
         
         print(f"Completed {completed}/{num_samples} samples")
+                                                                                                                                                                                                                                                                                                                                                      

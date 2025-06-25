@@ -1,20 +1,20 @@
 experiment:
   name: "Darcy Flow Generation"
-  seed: 45
+  seed: 42
   simulator_type: "DARCY"
-  reduced_model_type: "FIM" # "FIM" or "RAND"
-  output_dir: "datasets/dataset_DARCY_cov4"
+  reduced_model_type: "AS" # "FIM" or "RAND"
+  output_dir: "datasets/dataset_DARCY_AS2"
 
 viz_settings:
   plot_interval: 1
   plot_vector_count: 5
-  plots_dir: "datasets/dataset_DARCY_cov4/plots"
+  plots_dir: "datasets/dataset_DARCY_AS2/plots"
 
 data_settings:
-  num_samples: 200 #1000
+  num_samples: 300 #1000
   num_workers: 1
-  num_subsamples: 200
-  data_dir: "datasets/dataset_DARCY_cov4/samples"
+  num_subsamples: 300
+  data_dir: "datasets/dataset_DARCY_AS2/samples"
 
 simulator_settings:
   size: 128 # Grid size

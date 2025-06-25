@@ -1,20 +1,20 @@
 experiment:
   name: "Darcy Flow Generation"
-  seed: 50
+  seed: 42
   simulator_type: "DARCY"
   reduced_model_type: "FIM" # "FIM" or "RAND"
-  output_dir: "datasets/dataset_DARCY_cov5"
+  output_dir: "datasets/dataset_DARCY_cov4"
 
 viz_settings:
   plot_interval: 1
   plot_vector_count: 5
-  plots_dir: "datasets/dataset_DARCY_cov5/plots"
+  plots_dir: "datasets/dataset_DARCY_cov4/plots"
 
 data_settings:
-  num_samples: 3 #1000
+  num_samples: 200 #1000
   num_workers: 1
   num_subsamples: 200
-  data_dir: "datasets/dataset_DARCY_cov5/samples"
+  data_dir: "datasets/dataset_DARCY_cov4/samples"
 
 simulator_settings:
   size: 128 # Grid size
@@ -24,4 +24,4 @@ reduced_model_settings:
   probe_size: 256 #10
   noise_std: 0.5
   eigen_value_fraction: 0.01
-  eigen_vector_count: 5 # Overrides eigen_value_fraction if set
+  eigen_vector_count: 500 # Overrides eigen_value_fraction if set

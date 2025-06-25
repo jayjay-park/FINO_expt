@@ -9,7 +9,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from groundwater.groundwater.utils import GaussianRandomField, plot_fields
-from groundwater.groundwater.devito_op import GroundwaterEquation
+from groundwater.groundwater.devito_op import GroundwaterEquation, GroundwaterModel
 
 
 class DarcySimulator(Simulator):
@@ -19,6 +19,7 @@ class DarcySimulator(Simulator):
         self.dtype = dtype
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.model = GroundwaterEquation(size)
+        self.pytorch_model = GroundwaterModel(size)
         self.T = T
 
     def sample(self):

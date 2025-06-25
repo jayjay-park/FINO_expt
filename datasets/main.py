@@ -32,7 +32,7 @@ def main():
     simulator = create_simulator(simulator_type, simulator_settings)
     reduced_model = create_reduced_model(reduced_model_type, reduced_model_settings, simulator_type)
     
-    generate_dataset(simulator, reduced_model, data_settings, viz_settings, simulator_type)
+    generate_dataset(simulator, reduced_model, data_settings, viz_settings, simulator_type, reduced_model_type)
     
 if __name__ == "__main__":
     main()
