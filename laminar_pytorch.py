@@ -71,6 +71,9 @@ class LaminarPyTorch(nn.Module):
         # Solution count for tracking
         self.soln_count = torch.zeros(6, device=device, dtype=dtype)
         
+        # Ensure all components are on correct device (call after everything is set up)
+        self.to_device()
+        
     def setup_mesh(self):
         """Setup the computational mesh using finite differences."""
         # Create coordinate grids
@@ -94,6 +97,45 @@ class LaminarPyTorch(nn.Module):
         # Inlet boundary coordinates for inflow profile
         inlet_coords = self.coords[self.inlet_mask]
         self.inlet_y_coords = inlet_coords[:, 1]
+    
+    def to_device(self):
+        """Ensure all tensors are moved to the correct device."""
+        # Move coordinate tensors (check if they exist first)
+        if hasattr(self, 'coords'):
+            self.coords = self.coords.to(self.device)
+        if hasattr(self, 'X'):
+            self.X = self.X.to(self.device)
+        if hasattr(self, 'Y'):
+            self.Y = self.Y.to(self.device)
+        if hasattr(self, 'inlet_y_coords'):
+            self.inlet_y_coords = self.inlet_y_coords.to(self.device)
+        
+        # Move boundary masks
+        if hasattr(self, 'inlet_mask'):
+            self.inlet_mask = self.inlet_mask.to(self.device)
+        if hasattr(self, 'outlet_mask'):
+            self.outlet_mask = self.outlet_mask.to(self.device)
+        if hasattr(self, 'bounding_mask'):
+            self.bounding_mask = self.bounding_mask.to(self.device)
+        
+        # Move operators
+        if hasattr(self, 'grad_x_op'):
+            self.grad_x_op = self.grad_x_op.to(self.device)
+        if hasattr(self, 'grad_y_op'):
+            self.grad_y_op = self.grad_y_op.to(self.device)
+        if hasattr(self, 'laplacian_op'):
+            self.laplacian_op = self.laplacian_op.to(self.device)
+        
+        # Move solution count
+        if hasattr(self, 'soln_count'):
+            self.soln_count = self.soln_count.to(self.device)
+    
+    def to(self, device):
+        """Override to method to handle custom tensors."""
+        super().to(device)
+        self.device = device
+        self.to_device()
+        return self
         
     def setup_operators(self):
         """Setup finite difference operators for gradients and Laplacian."""
