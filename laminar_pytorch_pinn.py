@@ -62,6 +62,9 @@ class LaminarPINN(nn.Module):
         # Activation function
         self.activation = nn.Tanh()
         
+        # Move network to device
+        self.to(device)
+        
         # Initialize weights
         self.init_weights()
         

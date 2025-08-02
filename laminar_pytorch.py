@@ -159,7 +159,7 @@ class LaminarPyTorch(nn.Module):
             nn.Linear(256, 128),
             nn.Tanh(),
             nn.Linear(128, 2)   # Output: (u, v)
-        )
+        ).to(self.device)
         
         # Neural network for pressure field
         self.pressure_net = nn.Sequential(
@@ -170,7 +170,7 @@ class LaminarPyTorch(nn.Module):
             nn.Linear(128, 64),
             nn.Tanh(),
             nn.Linear(64, 1)    # Output: pressure
-        )
+        ).to(self.device)
         
         # Neural network for Lagrange multiplier
         self.lagrange_net = nn.Sequential(
@@ -181,7 +181,7 @@ class LaminarPyTorch(nn.Module):
             nn.Linear(64, 32),
             nn.Tanh(),
             nn.Linear(32, 1)    # Output: Lagrange multiplier
-        )
+        ).to(self.device)
     
     def inflow_profile(self, theta: torch.Tensor, sigma: float = 1.2, 
                       alpha: float = 0.1, s: float = 0.6) -> torch.Tensor:
