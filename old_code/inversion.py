@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import math
-from modulus.models.fno import FNO
+from physicsnemo.models.fno import FNO
 import h5py
 # from torchmetrics.image import StructuralSimilarityIndexMeasure
 from skimage.metrics import structural_similarity as ssim

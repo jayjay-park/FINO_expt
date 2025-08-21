@@ -67,8 +67,8 @@ class FIMReducedModel(ReducedModel):
         """
         Run in a worker thread. Returns a flat gradient of shape (p,).
         """
-        g = simulator.model.compute_gradient(x_np, probe_2d, p_fwd)  # [d,d]
-        return g.reshape(-1)
+        g = simulator.model.compute_gradient(x_np, probe_2d, p_fwd).reshape(-1)  # [d,d]
+        return g
 
 
     def compute_score_matrix(self, simulator, x, L):

@@ -81,53 +81,94 @@ class ASReducedModel(ReducedModel):
         out = x_t.grad.detach().cpu().flatten().numpy()
         print(out.shape)
         return out
-
-    def compute_active_subspace(self, simulator, x, L):
+    # ----------------------------------------------------------
+    # Gradient for ONE sensor entry  μ_j(θ)
+    # ----------------------------------------------------------
+    def _grad_single_sensor(self, sim, theta_np: np.ndarray, j: int) -> np.ndarray:
         """
-        Thread-parallel Darcy fallback. Returns Qb of shape [p, r] on CUDA.
+        Return g_j = J(θ)^T e_j  as a NumPy (p,) vector.
+        Works for both Devito (Darcy) and PyTorch simulators.
         """
-        # 1) problem sizes
-        p = simulator.domain              # = d*d
-        d = int(np.sqrt(p))
-        r = self.eigen_vector_count + 5
-        m = self.probe_size               # == len(L)
-
-        # 2) build your GPU probe matrix [r, p]
-        idx = torch.tensor(L, dtype=torch.long, device='cuda')  
-        all_one = torch.ones(r, m, device='cuda')                   
-
-        rows = torch.arange(r, device='cuda').unsqueeze(1)      
-        probe_flat = torch.zeros((r, p), device='cuda')        
-        probe_flat[rows, idx] = all_one                       
-
-        # 3) one Darcy forward solve
-        x_np, p_fwd = None, None
         if self.simulator_type == "DARCY":
-            x_np = x
-            f    = np.zeros_like(x_np)
-            p_fwd = simulator.model.eval_fwd_op(
-                f, x_np, simulator.T, return_array=False
+            w = np.zeros_like(theta_np, dtype=np.float32)
+            w.ravel()[j] = 1.0                     # e_j
+            p_fwd = sim.model.eval_fwd_op(
+                np.zeros_like(theta_np), theta_np, sim.T, return_array=False
             )
+            grad_2d = sim.model.compute_gradient(theta_np, w, p_fwd)
+            return grad_2d.ravel()                # (p,)
 
-        # 4) prepare numpy probes for each thread
-        probes_np = probe_flat.cpu().numpy().reshape(r, d, d)  # [r, d, d]
+        # ----------------- PyTorch branch ---------------------
+        theta = torch.tensor(theta_np, dtype=torch.float32,
+                             device='cuda', requires_grad=True)
+        mu = sim.pytorch_model(theta, torch.zeros_like(theta)).view(-1)
+        mu[j].backward()                          # ∂μ_j/∂θ
+        return theta.grad.detach().cpu().ravel().numpy()
 
-        # 5) thread-parallel compute_gradient calls
-        grads_np = np.empty((r, p), dtype=np.float32)
-        with ThreadPoolExecutor() as exe:
-            futures = {
-                exe.submit(self._compute_grad_output, simulator, x_np, probes_np[i], torch.tensor(f)): i
-                for i in range(r)
-            }
-            for fut in as_completed(futures):
-                i = futures[fut]
-                grads_np[i] = fut.result()
+    # ----------------------------------------------------------
+    # Block Jacobian  J_L(θ)  – shape [p, m]
+    # ----------------------------------------------------------
+    def compute_active_subspace(self,
+                                simulator,
+                                theta_np: np.ndarray,
+                                sensor_idx: np.ndarray):
+        """
+        Return G = [g_{j1} | … | g_{jm}]  ∈ R^{p×m},
+        where m = len(sensor_idx).
+        """
+        grads = [
+            self._grad_single_sensor(simulator, theta_np, int(j)).reshape(-1, 1)
+            for j in sensor_idx
+        ]
+        G_np = np.concatenate(grads, axis=1)      # (p, m)
+        return torch.from_numpy(G_np).to('cuda')  # tensor [p, m]
+
+    # def compute_active_subspace(self, simulator, x, L):
+    #     """
+    #     Thread-parallel Darcy fallback. Returns Qb of shape [p, r] on CUDA.
+    #     """
+    #     # 1) problem sizes
+    #     p = simulator.domain              # = d*d
+    #     d = int(np.sqrt(p))
+    #     r = self.eigen_vector_count + 5
+    #     m = self.probe_size               # == len(L)
+
+    #     # 2) build your GPU probe matrix [r, p]
+    #     idx = torch.tensor(L, dtype=torch.long, device='cuda')  
+    #     all_one = torch.ones(r, m, device='cuda')                   
+
+    #     rows = torch.arange(r, device='cuda').unsqueeze(1)      
+    #     probe_flat = torch.zeros((r, p), device='cuda')        
+    #     probe_flat[rows, idx] = all_one                       
+
+    #     # 3) one Darcy forward solve
+    #     x_np, p_fwd = None, None
+    #     if self.simulator_type == "DARCY":
+    #         x_np = x
+    #         f    = np.zeros_like(x_np)
+    #         p_fwd = simulator.model.eval_fwd_op(
+    #             f, x_np, simulator.T, return_array=False
+    #         )
+
+        # # 4) prepare numpy probes for each thread
+        # probes_np = probe_flat.cpu().numpy().reshape(r, d, d)  # [r, d, d]
+
+        # # 5) thread-parallel compute_gradient calls
+        # grads_np = np.empty((r, p), dtype=np.float32)
+        # with ThreadPoolExecutor() as exe:
+        #     futures = {
+        #         exe.submit(self._compute_grad_output, simulator, x_np, probes_np[i], torch.tensor(f)): i
+        #         for i in range(r)
+        #     }
+        #     for fut in as_completed(futures):
+        #         i = futures[fut]
+        #         grads_np[i] = fut.result()
 
 
-        # 6) back to GPU, shape [p, r]
-        Qb_rows = torch.from_numpy(grads_np).to('cuda')  # [r, p]
-        Qb      = Qb_rows.transpose(0, 1)               # [p, r]
-        return Qb
+        # # 6) back to GPU, shape [p, r]
+        # Qb_rows = torch.from_numpy(grads_np).to('cuda')  # [r, p]
+        # Qb      = Qb_rows.transpose(0, 1)               # [p, r]
+        # return Qb
 
     def plot_decay(self, s, path, title):
         plt.plot(s)
@@ -141,4 +182,6 @@ class ASReducedModel(ReducedModel):
         if self.eigen_vector_count is not None:
             return self.eigen_vector_count
         return int(simulator.domain * self.eigen_value_fraction)
+
+
 

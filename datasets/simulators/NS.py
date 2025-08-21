@@ -8,14 +8,17 @@ from scipy.fft import fft2, ifft2, fftshift
 import torch.fft as fft
 
 class NavierStokesSimulator(torch.nn.Module):
+    '''
+    configuration is desigend to match with Li et al. (2022)
+    '''
     def __init__(self, 
                  s1, 
                  s2,
                  scale=10.0,
                  T=1.0,
                  Re=100,
-                 adaptive=True,
-                 delta_t=1e-3,
+                 adaptive=False,
+                 delta_t=1e-4,
                  nburn=10,
                  nsteps=1000):
 
@@ -216,7 +219,7 @@ class NavierStokesSimulator(torch.nn.Module):
     
     def forward(self, w):
         for i in range(self.nsteps):
-            if (i + 1) % 10 == 0:
+            if (i + 1) % 100 == 0:
                 print(f"NS Simulator Step {i + 1} of {self.nsteps}")
             w = self.advance(w)
         return w

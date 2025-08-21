@@ -27,7 +27,7 @@ from PINO_NS import *
 from baseline import *
 
 from torch.utils.data import Dataset, DataLoader, TensorDataset
-from modulus.models.fno import FNO
+from physicsnemo.models.fno import FNO
 from modulus.models.mlp.fully_connected import FullyConnected
 
 class Timer:

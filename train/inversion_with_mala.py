@@ -217,6 +217,32 @@ def psd_flattened(field: torch.Tensor, norm_fft="ortho"):
     return k.to(field.device), psd
 
 
+def apply_neumann_bc(u_interior):
+    """
+    Same as above but for a PyTorch tensor.
+    """
+    N, M = 126, 126
+    u = u_interior.new_zeros((N+2, M+2))
+    u[1:-1, 1:-1] = u_interior.squeeze()[1:-1, 1:-1]
+
+    # top row:  
+    u[0, 1:-1]  = 2*u[1, 1:-1] - u[2, 1:-1]  
+    # bottom row:  
+    u[-1, 1:-1] = 2*u[-2, 1:-1] - u[-3, 1:-1]  
+    # left col:  
+    u[1:-1, 0]  = 2*u[1:-1, 1]   - u[1:-1, 2]  
+    # right col:  
+    u[1:-1, -1] = 2*u[1:-1, -2]  - u[1:-1, -3]  
+
+
+    u[0, 0]      = u[1, 1]
+    u[0, -1]     = u[1, -2]
+    u[-1, 0]     = u[-2, 1]
+    u[-1, -1]    = u[-2, -2]
+
+    return u.reshape(1, 1, 128, 128)
+
+
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def compute_gradient_single(simulator, x_np, probe_2d, p_fwd):
@@ -225,6 +251,7 @@ def compute_gradient_single(simulator, x_np, probe_2d, p_fwd):
     """
     g2d = simulator.compute_gradient(x_np, probe_2d, p_fwd)  # [H,W]
     return g2d.reshape(-1)  # → (p,)
+
 
 def fisher_approx_vjp_batched(
     model_or_simulator,
@@ -235,9 +262,7 @@ def fisher_approx_vjp_batched(
     rank=200,
     chunk_size=32,
     loss_type="FNO",
-    forcing_term=None,
-    noise_std = 0.01,
-    full_obs = True
+    forcing_term=None
 ):
     device = x0.device
     p = x0.numel()       # total #parameters = H*W
@@ -337,27 +362,9 @@ def fisher_approx_vjp_batched(
 
     return Q
 
-def sobolev_H1_norm(u: torch.Tensor,        # (..., H, W)
-                    dx: float = 1.0,
-                    dy: float = 1.0) -> torch.Tensor:
-    """
-    Finite-difference H¹(Ω) norm  ‖u‖² = ∫ (u² + |∇u|²) .
-    Works on CPU/GPU, keeps leading batch dims.
-    """
-    # ---- central differences with Neumann padding ----
-    # x-gradient
-    grad_x = (F.pad(u, (0, 0, 1, 1), mode='replicate')[..., 2:, :] -
-              F.pad(u, (0, 0, 1, 1), mode='replicate')[..., :-2, :]) / (2 * dy)
-    # y-gradient
-    grad_y = (F.pad(u, (1, 1, 0, 0), mode='replicate')[..., :, 2:] -
-              F.pad(u, (1, 1, 0, 0), mode='replicate')[..., :, :-2]) / (2 * dx)
-
-    return torch.mean(u.pow(2) + grad_x.pow(2) + grad_y.pow(2))
-
-
 def two_sided_armijo_line_search(x, loss_fn, grad, step0,
                        c=5e-1, beta=0.5, gamma=1.02,
-                       max_expand=3, max_shrink=5):
+                       max_expand=5, max_shrink=5):
     """Return a step size satisfying Armijo:  f(x-αg) ≤ f(x) - c α ||g||²."""
     f0   = loss_fn(x)
     gdot = torch.dot(grad.flatten(), grad.flatten()).item()
@@ -395,7 +402,9 @@ def least_squares_posterior_estimation(model, input_data, true_data, learning_ra
 
     x0 = input_data.clone().detach().requires_grad_(True).to(device)
     posterior_set, output_set, curves = [], [], []
-    losses, inversion_MSEs, regs, ssims, infty_norm, gradient_set = [], [], [], [], [], []
+    # optimizer = torch.optim.Adam([x0], lr=learning_rate)
+
+    losses, inversion_MSEs, regs, ssims, infty_norm = [], [], [], [], []
     loss_data_iter = []
 
     start_time = time.time()
@@ -498,12 +507,7 @@ def least_squares_posterior_estimation(model, input_data, true_data, learning_ra
 
         # metrics (L2)
         diff = x0 - prior
-        inversion_MSE = torch.norm(diff, p=2) / torch.norm(prior, p=2)
-        # metrics (H1)
-        sobolev_num   = sobolev_H1_norm(diff)          # ‖x - x★‖_H1
-        sobolev_denom = sobolev_H1_norm(prior)         # ‖x★‖_H1
-        rel_sobolev   = (sobolev_num / sobolev_denom).sqrt()  # take √ because norm fn returns squared integral
-
+        inversion_MSE = torch.norm(diff, p=2) / torch.norm(prior)
         input_numpy = x0.detach().cpu().squeeze().numpy()
         prior_numpy = prior.detach().cpu().squeeze().numpy()
         ssim_value = ssim(input_numpy.astype(np.float64),
@@ -522,8 +526,7 @@ def least_squares_posterior_estimation(model, input_data, true_data, learning_ra
             "loss":          loss.item(),
             "inversion_MSE": inversion_MSE.item(),
             "regularization":reg.item(),
-            "SSIM":          ssim_value,
-            "rel_H1":        rel_sobolev.item()
+            "SSIM":          ssim_value
         })
 
         # if batch_num < 2 and iteration % 50 == 0 and loss_type != "Devito":
@@ -561,11 +564,182 @@ def least_squares_posterior_estimation(model, input_data, true_data, learning_ra
         ssims.append(ssim_value)
         posterior_set.append(x0.clone().detach().cpu().numpy())
         output_set.append(output.clone().detach().cpu().numpy())
-        gradient_set.append(x0.clone().detach().cpu().numpy())
 
-    return posterior_set, losses, inversion_MSEs, regs, ssims, output, loss_data_iter, i, j, curves, folder, output_set, gradient_set
+    return posterior_set, losses, inversion_MSEs, regs, ssims, output, loss_data_iter, i, j, curves, folder, output_set
+
+# ----------------------
+# Least Squares Posterior Estimation (with per-iteration timing)
+# ----------------------
+def least_squares_posterior_estimation(model, input_data, true_data, learning_rate,
+                                       batch_num, num_iterations=500, prior=None, i=None, j=None):
+    x0 = input_data.clone().detach().requires_grad_(True).to(device)
+    posterior_set, output_set, curves = [], [], []
+    mse_loss = torch.nn.MSELoss()
+
+    losses, inversion_MSEs, regs, ssims, infty_norm = [], [], [], [], []
+    loss_data_iter = []
+
+    start_time = time.time()
+    true_data = true_data.to(device)
+
+    for t in range(num_iterations):
+        output = model(x0)
+        loss = mse_loss(output[:, :, i, j], true_data[:, :, i, j])
+        loss.backward()
+        with torch.no_grad():
+            x0 -= learning_rate * x0.grad
+        x0.requires_grad_(True)
+        posterior_set.append(x0.detach().cpu())
+        output_set.append(output.detach().cpu())
+
+        elapsed = time.time() - start_time
+        loss_data_iter.append({
+            "sample": batch_num,
+            "iteration": t,
+            "elapsed_s": elapsed,
+            "loss": loss.item()
+        })
+
+    return posterior_set, losses, inversion_MSEs, regs, ssims, output, loss_data_iter, i, j, curves, folder_name, output_set
 
 
+# ------------------------------------------------------------
+# MALA Posterior Estimation with Diagnostics
+# ------------------------------------------------------------
+def mala_posterior_estimation(model, input_data, true_data,
+                              step_size, batch_num, num_samples=1000,
+                              prior=None, i=None, j=None,
+                              sigma_prior=0.5, alpha=0.0,
+                              burn_in=200, thin_every=5,
+                              diagnostics=True, output_dir="."):
+    x0 = input_data.clone().detach().requires_grad_(True).to(device)
+    true_data = true_data.to(device)
+    posterior_set, output_set, loss_data_iter = [], [], []
+    mse_loss = torch.nn.MSELoss()
+    start_time = time.time()
+
+    def log_posterior(a):
+        if loss_type == "Devito":
+            a = a.squeeze()
+            a.retain_grad() 
+            output = model(a)
+            pred = output[i,j] 
+        else: 
+            output = model(a)
+            pred = output[:, :, i, j]
+        neg_log_likelihood = mse_loss(pred.squeeze(), true_data[:, :, i, j].squeeze())
+        neg_log_prior = ((a.squeeze() - prior.squeeze())**2).sum() / (2 * sigma_prior**2)
+        reg_term = alpha * 0.0  # optional smoothness penalty
+        return -(neg_log_likelihood + neg_log_prior + reg_term)
+
+    def transition_log_prob(x_from, x_to, grad_from):
+        mu = x_from + 0.5 * step_size**2 * grad_from
+        return -((x_to - mu)**2).sum() / (2 * step_size**2)
+
+    accepted = 0
+    for t in range(num_samples):
+        lp = log_posterior(x0)
+        x0.grad = None
+        lp.backward()
+        grad = x0.grad.clone()
+
+        noise = torch.randn_like(x0)
+        proposal = x0 + 0.5 * step_size**2 * grad + step_size * noise
+        proposal = proposal.clamp(0.0, 1.0).detach().requires_grad_(True)
+
+        lp_prop = log_posterior(proposal)
+        proposal.grad = None
+        lp_prop.backward()
+        grad_prop = proposal.grad.clone()
+
+        log_q_forward = transition_log_prob(x0, proposal, grad)
+        log_q_reverse = transition_log_prob(proposal, x0, grad_prop)
+
+        log_accept_ratio = lp_prop - lp + log_q_reverse - log_q_forward
+        if torch.log(torch.rand(1)).item() < log_accept_ratio.item():
+            x0 = proposal.clone().detach().requires_grad_(True)
+            accepted += 1
+
+        if t >= burn_in and (t - burn_in) % thin_every == 0:
+            posterior_set.append(x0.detach().cpu())
+            output_set.append(model(x0).detach().cpu())
+
+        elapsed = time.time() - start_time
+        loss_data_iter.append({
+            "sample": batch_num,
+            "iteration": t,
+            "elapsed_s": elapsed,
+            "log_posterior": lp.item(),
+            "acceptance_rate": accepted / (t + 1)
+        })
+
+    print(f"Final acceptance rate: {accepted / num_samples:.3f}")
+
+    if diagnostics and len(posterior_set) > 0:
+        trace_tensor = torch.stack(posterior_set)
+        H, W = 128, 128
+
+        def autocorrelation(x, max_lag=100):
+            x = np.ravel(x)  # make sure it's 1D
+            x = x - np.mean(x)
+            result = np.correlate(x, x, mode='full')
+            result = result[result.size // 2:]
+            if result[0] == 0:
+                return np.ones(max_lag) * np.nan
+            result /= result[0]
+            return result[:max_lag]
+
+        def compute_ess(x):
+            acf = autocorrelation(x, max_lag=100)
+            if np.isnan(acf).any():
+                return np.nan
+            return len(x) / (1 + 2 * np.sum(acf[1:]))
+
+
+        # trace_np = trace_tensor[:, 64, 64].numpy()
+        trace_np = trace_tensor[:, 0, 0, 64, 64].numpy()  # access pixel (64,64)
+
+        plt.figure()
+        plt.plot(trace_np)
+        plt.title("Trace plot at (64,64)")
+        plt.tight_layout()
+        plt.savefig(f"{output_dir}/trace_{batch_num}.png")
+        plt.close()
+
+        plt.figure()
+        plt.hist(trace_np, bins=50, density=True)
+        plt.title("Histogram at (64,64)")
+        plt.tight_layout()
+        plt.savefig(f"{output_dir}/hist_{batch_num}.png")
+        plt.close()
+
+        acf = autocorrelation(trace_np, max_lag=100)
+        plt.figure()
+        plt.stem(acf)
+        plt.title("Autocorrelation at (64,64)")
+        plt.tight_layout()
+        plt.savefig(f"{output_dir}/autocorr_{batch_num}.png")
+        plt.close()
+
+        ess_val = compute_ess(trace_np)
+        print(f"ESS at (64,64): {ess_val:.1f}")
+
+        ess_map = np.zeros((H, W))
+        for y in range(H):
+            for x in range(W):
+                ess_map[y, x] = compute_ess(trace_tensor[:, 0, 0, y, x].numpy())
+
+        plt.figure(figsize=(8, 6))
+        im = plt.imshow(ess_map, cmap="viridis")
+        plt.colorbar(im, label="ESS")
+        plt.title("ESS Heatmap")
+        plt.tight_layout()
+        plt.savefig(f"{output_dir}/ess_map_{batch_num}.png")
+        plt.close()
+
+        np.save(f"{output_dir}/ess_map_{batch_num}.npy", ess_map)
+
+    return posterior_set, output_set, loss_data_iter
 
 # ------------------------------------------------------------
 # Main Script for Inversion on Multiple Samples (batch_size=1)
@@ -579,17 +753,17 @@ if __name__ == "__main__":
 
     '''Experimental Factor'''
     num_vec = 400 #400
-    loss_type = "MSE"  # or "JAC" "MSE" "Devito"
+    loss_type = "JAC"  # or "JAC" "MSE" "Devito"
     GRF = 3
-    alpha = 0.
+    alpha = 0. #0.05
     initial_guess = "prior_mean" # "smooth", "noisy", "naturalperturb"
     decay_interval = 20
 
-    '''Type of Optimizer'''
-    type_opt = "GD"
+    '''Type of Optimizer: GD, NGD, MALA'''
+    type_opt = "MALA" #MALA
 
     '''Experimental Factor on Observation'''
-    noise_std = 0.01 #0.08 #0.03
+    noise_std = 0.1 #0.08 #0.03
     sub_sampling = False
     top_subsampling = False
     full_obs = True
@@ -598,11 +772,12 @@ if __name__ == "__main__":
 
     '''Ploting Factor'''
     spectral = False
+    diagnostics = True
     
     print("type opt", type_opt)
 
     if initial_guess == "prior_mean":
-        learning_rate = 5000 #5000 #7200 #1200 #@TODO
+        learning_rate = 0.05 #5000 #7200 #1200 #@TODO
         num_sample = 1 #1
         num_sample_prior = 30 # 30, 50 #5 #@TODO
         num_epoch = 1001 #1001
@@ -703,27 +878,22 @@ if __name__ == "__main__":
         folder_name = f'inversion_result_{loss_type}_{num_vec}_{initial_guess}_{type_opt}'
     os.makedirs(folder_name, exist_ok=True)
 
-    # Construct files for saving model iterate
+
     if loss_type == "JAC" and top_subsampling == False :
         fname = f'inversion_history_{loss_type}_{num_vec}_{initial_guess}_{type_opt}.h5'
         fname_output = f'inversion_history_output_{loss_type}_{num_vec}_{initial_guess}_{type_opt}.h5'
-        fname_gradient = f'inversion_history_gradient_{loss_type}_{num_vec}_{initial_guess}_{type_opt}.h5'
     elif loss_type != "JAC" and top_subsampling == False :
         fname = f'inversion_history_{loss_type}_{initial_guess}_{type_opt}.h5'
         fname_output = f'inversion_history_output_{loss_type}_{initial_guess}_{type_opt}.h5'
-        fname_gradient = f'inversion_history_gradient_{loss_type}_{initial_guess}_{type_opt}.h5'
     else:
         fname = f'inversion_history_{loss_type}_{initial_guess}_{type_opt}_top.h5'
         fname_output = f'inversion_history_output_{loss_type}_{initial_guess}_{type_opt}_top.h5'
-        fname_gradient = f'inversion_history_gradient_{loss_type}_{initial_guess}_{type_opt}_top.h5'
     # If it already exists, delete it (and any stale lock)
     if os.path.exists(fname): os.remove(fname)
     if os.path.exists(fname_output): os.remove(fname_output)
-    if os.path.exists(fname_gradient): os.remove(fname_gradient)
     # Now create it
     h5_file = h5py.File(fname, 'w')
     h5_file_output = h5py.File(fname_output, 'w')
-    h5_file_gradient = h5py.File(fname_gradient, 'w')
     num_samples = len(dataloader)
     dset = h5_file.create_dataset(
         'a', 
@@ -740,14 +910,6 @@ if __name__ == "__main__":
         compression='gzip',
         compression_opts=4,
         chunks=(1, num_epoch, 128, 128)  # chunk by sample
-    )
-    dset_gradient = h5_file_gradient.create_dataset(
-        'g', 
-        shape=(num_samples, num_epoch, 128, 128),
-        dtype='f4',
-        compression='gzip',
-        compression_opts=4,
-        chunks=(1, num_epoch, 128, 128)
     )
 
     # Compute prior mean
@@ -862,13 +1024,33 @@ if __name__ == "__main__":
 
         plot_single(zero_X.detach().cpu().squeeze(), f"zero_X_sample_{sample_counter}.png", "viridis")
 
-        posterior_set, losses, inversion_MSEs, regs, ssims, pred, loss_data_iter, i_idx, j_idx, curves, folder, output_set, gradient_set = (
-            least_squares_posterior_estimation(
+        if type_opt == "MALA":
+            posterior_set, output_set, loss_data_iter = mala_posterior_estimation(
                 model, zero_X, y,
-                learning_rate, batch_num=sample_counter,
-                num_iterations=num_epoch, prior=x, i=i, j=j
+                step_size=learning_rate, batch_num=sample_counter,
+                num_samples=num_epoch, prior=x, i=i, j=j,
+                sigma_prior=0.5, alpha=alpha,
+                burn_in=200, thin_every=5,
+                diagnostics=True, output_dir=folder_name
             )
-        )
+            pred = output_set[-1]
+            posterior_mean = torch.stack(posterior_set).mean(dim=0)
+            print("posterior_mean", posterior_mean.shape, torch.stack(posterior_set).shape)
+
+            # Save to file
+            # np.save(f\"{output_dir}/posterior_mean_{batch_num}.npy\", posterior_mean.squeeze().cpu().numpy())
+            plot_single(posterior_mean.squeeze().cpu().numpy(), f"{folder_name}/posterior_mean.png", "viridis")
+
+        else:
+            posterior_set, losses, inversion_MSEs, regs, ssims, pred, loss_data_iter, i_idx, j_idx, curves, folder, output_set = (
+                least_squares_posterior_estimation(
+                    model, zero_X, y,
+                    learning_rate, batch_num=sample_counter,
+                    num_iterations=num_epoch, prior=x, i=i, j=j
+                )
+            )
+
+        
 
         # Plot the final inversion result.
         final_x0 = torch.tensor(posterior_set[-1]).cpu().numpy()  # just the col indicesr(posterior_set[-1]).detach()
@@ -886,10 +1068,8 @@ if __name__ == "__main__":
         # posterior_set is a list of length num_epoch, each an 128×128 numpy array. Write them into the HDF5 at [sample_counter, :, :, :]:
         arr = np.stack(posterior_set, axis=0).squeeze()   # shape (num_epoch,128,128)
         arr_output = np.stack(output_set, axis=0).squeeze()   # shape (num_epoch,128,128)
-        arr_gradient = np.stack(gradient_set, axis=0).squeeze()
         dset[sample_counter, :, :, :] = arr
         dset_output[sample_counter, :, :, :] = arr_output
-        dset_gradient[sample_counter, :, :, :] = arr_gradient
 
         # collect this sample’s iteration‐by‐iteration records
         loss_data_all.extend(loss_data_iter)

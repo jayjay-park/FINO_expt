@@ -133,7 +133,10 @@ def generate_dataset(simulator, reduced_model, data_settings, viz_settings, simu
     if reduced_model_type == "AS":
         svd_cache = 'datasets/AS_svd_modes.h5'
     elif reduced_model_type == "FIM": 
-        svd_cache = 'datasets/svd_modes.h5' #os.path.join('/datasets/', 'svd_modes.h5')
+        if simulator_type == "DARCY":
+            svd_cache = 'datasets/svd_modes.h5'
+        elif simulator_type == "NS":
+            svd_cache = 'datasets/svd_modes_NS.h5'
 
     # --- build L once (block-wise jitter) ---
     d = int(np.sqrt(simulator.domain))
@@ -161,16 +164,18 @@ def generate_dataset(simulator, reduced_model, data_settings, viz_settings, simu
         s = torch.from_numpy(s_np).to(device)
         print(f"Loaded cached SVD modes (shape v={v.shape}, s={s.shape})", flush=True)
     else:
-        # --- collect all score-matrices Q_b ---
         Q_list = []
         for b in range(num_subsamples):
             print(f"Computing Q_b for subsample {b+1}/{num_subsamples}", flush=True)
             x_b = simulator.sample().detach().cpu().numpy()
             if reduced_model_type == "FIM":
                 Qb  = reduced_model.compute_score_matrix(simulator, x_b, L)  # [p, r]
+                Q_list.append(Qb)
             elif reduced_model_type == "AS":
-                Qb  = reduced_model.compute_active_subspace(simulator, x_b, L)  # [p, r]
-            Q_list.append(Qb)
+                theta = simulator.sample().cpu().numpy()
+                Gb = reduced_model.compute_active_subspace(simulator, theta, L) # [p, 1]
+                Q_list.append(Gb)  # [p, B]
+                # Qb  = reduced_model.compute_active_subspace(simulator, x_b, idx_list)  # [p, r]
 
         Q_tilde = torch.cat(Q_list, dim=1)  # [p, r * num_subsamples]
         print("Q_tilde shape:", Q_tilde.shape)

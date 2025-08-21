@@ -1,6 +1,6 @@
 experiment:
   name: "Darcy Flow Generation"
-  seed: 42
+  seed: 43
   simulator_type: "DARCY"
   reduced_model_type: "AS" # "FIM" or "RAND"
   output_dir: "datasets/dataset_DARCY_AS2"

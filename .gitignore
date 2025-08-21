@@ -50,3 +50,10 @@ train/*.h5
 train/*.sbatch
 train/*.png
 datasets/*.png
+train/*.mp4
+train/past/
+train/prior_*
+*.png
+*.sbatch
+datasets/*.sbatch
+old_code/

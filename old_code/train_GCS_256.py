@@ -21,7 +21,7 @@ from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.colors import SymLogNorm
 
 from torch.utils.data import Dataset, DataLoader, TensorDataset
-from modulus.models.fno import FNO
+from physicsnemo.models.fno import FNO
 from modulus.models.mlp.fully_connected import FullyConnected
 
 

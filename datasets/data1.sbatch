@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-#SBATCH --job-name=data1 # Job name
+#SBATCH --job-name=Active_Subspace # Job name
 #SBATCH --output=outs/data1.txt
 #SBATCH --time=200:00:00
 #SBATCH -p gpu
@@ -13,4 +13,4 @@ module load ompi-cpu
 
 source activate denoising_shiqin
 export NEPTUNE_API_TOKEN="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJhZWU1MzcwYy0yYjJmLTRmNzYtOTJkYy02MWNlMmZmM2Y3ZDMifQ=="
-python main.py --config configs/darcy1.yaml
+python main.py --config configs/AS/darcy1.yaml

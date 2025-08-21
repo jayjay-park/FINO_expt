@@ -435,23 +435,44 @@ def fisher_approx_vjp_batched(
             H = x_np.shape[0]
             grads = []
 
-            for k in range(end - start):
+            # for k in range(end - start):
                 # build 2D probe
-                probe_2d = np.zeros_like(x_np, dtype=np.float32)
-                flat_vec = V_chunk[:, k].detach().cpu().numpy()
-                probe_2d[i.cpu().numpy(), j.cpu().numpy()] = flat_vec
+                # print("k", k)
+            # probe_2d = np.zeros_like(x_np, dtype=np.float32)
+            probe_2d = np.zeros((chunk_size, p))
+            # flat_vec = V_chunk[:, k].detach().cpu().numpy()
+            flat_vec = V_chunk.detach().cpu().numpy().reshape(chunk_size, -1)
 
-                # compute Jᵀv via Devito
-                g2d = model_or_simulator.compute_gradient(x_np, probe_2d, p_fwd)
-                grads.append(torch.from_numpy(g2d.reshape(-1)).to(device))
+            idx = torch.tensor(L.detach().cpu(), dtype=torch.long)                
+            rows = np.arange(chunk_size).reshape(-1, 1)      
+            probe_flat = np.zeros((chunk_size, p))          
+
+            probe_2d[rows, idx] = flat_vec
+            probe_2d = probe_2d.reshape(chunk_size, 128, 128)
+            grads_np = np.empty((chunk_size, p), dtype=np.float32)
+            with ThreadPoolExecutor() as exe:
+                futures = {
+                    exe.submit(compute_gradient_single, model_or_simulator, x_np, probe_2d[item_idx], p_fwd): item_idx
+                    for item_idx in range(chunk_size)
+                }
+                for fut in as_completed(futures):
+                    interm = futures[fut]
+                    grads_np[interm] = fut.result()
+
+            # compute Jᵀv via Devito
+            # g2d = model_or_simulator.compute_gradient(x_np, probe_2d, p_fwd)
+            grads.append(torch.from_numpy(grads_np).to(device).reshape(p, chunk_size))
 
             # stack into [p, chunk_len]
-            Q[:, start:end] = torch.stack(grads, dim=1)
+            Q[:, start:end] = torch.stack(grads)
 
             del grads
             torch.cuda.empty_cache()
 
     return Q
+
+def total_variance(x):
+    return torch.mean(torch.abs(x[...,:-1] - x[...,1:])) + torch.mean(torch.abs(x[...,:-1,:] - x[...,1:,:]))
 
 def least_squares_posterior_estimation_fisher(model, input_data, true_data, learning_rate,
                                        batch_num, num_iterations=500, prior=None, i=None, j=None):
@@ -490,7 +511,7 @@ def least_squares_posterior_estimation_fisher(model, input_data, true_data, lear
         loss = mse_loss(extracted_output.squeeze(), extracted_target.squeeze())
         # reg = mse_loss(x0.squeeze(), prior.squeeze())
         # reg = torch.norm(x0.flatten(), p=2)**2
-        reg = torch.zeros(1).to(device)
+        reg = total_variance(x0)
         # print("reg", reg)
         loss_total = loss + alpha * reg
         loss_total.backward()
@@ -533,7 +554,7 @@ def least_squares_posterior_estimation_fisher(model, input_data, true_data, lear
                     pred = out[0, 0, i, j]
 
                 # 2) data misfit
-                data_misfit = mse_loss(pred, target)
+                data_misfit = mse_loss(pred, target) + alpha * total_variance(x)
 
                 # 4) combine and return as Python float
                 return float(data_misfit.item())
@@ -651,14 +672,14 @@ if __name__ == "__main__":
 
     # Define simulation parameters.
     num_vec = 200
-    loss_type = "MSE"  # "JAC" "MSE" "Devito"
-    alpha = 0.4 #1e-6 #0.05
+    loss_type = "Devito"  # "JAC" "MSE" "Devito"
+    alpha = 0.05 #1e-6 #0.05
     noise_std = 1.0 #0.3
     initial_guess = "smooth" # "smooth", "noisy"
     sub_sampling = True
     top_subsampling = False
     full_obs = False
-    decay_interval = 1
+    decay_interval = 20
     # damping_lambda = 0 #5e-7
 
     if initial_guess == "prior_mean":
@@ -668,10 +689,10 @@ if __name__ == "__main__":
         num_epoch = 2001 #1001
         offset=128
     elif initial_guess == "smooth":
-        learning_rate = 10 #0.5 #100 #0.0001 # 0.0001 (grf, fullobs) #0.005 (noisy, fullobs) #0.00005  # Inversion learning rate.
+        learning_rate = 5 #0.5 #100 #0.0001 # 0.0001 (grf, fullobs) #0.005 (noisy, fullobs) #0.00005  # Inversion learning rate.
         num_sample = 1 #3 #50
         num_sample_prior = 100
-        num_epoch = 2000 #35001 #500 #2201 #2001 #1001
+        num_epoch = 4000 #35001 #500 #2201 #2001 #1001
         offset=128
         GRF = 3
         if GRF == 1:
@@ -682,7 +703,7 @@ if __name__ == "__main__":
             sigma = 100.0
         elif GRF == 3:
             kernel_size = 19
-            sigma = 300.0
+            sigma = 500.0
     
     
     # Load configuration and dataset. and checkpoint
@@ -706,6 +727,9 @@ if __name__ == "__main__":
     elif loss_type == "JAC" and num_vec == 200:
         config = load_config("configs/eigenvectors/e_200.yaml")
         ckpt_path = f"checkpoints/n=400_e=200_m=FNO_s=RFS_l=JAC_20250615_133916/n=400_e=200_m=FNO_s=RFS_l=JAC_epoch=190_val_rel_l2_loss=0.0170.ckpt"
+    elif loss_type == "JAC" and num_vec == 400:
+        config = load_config("configs/eigenvectors/e_400.yaml")
+        ckpt_path = f"checkpoints/n=400_e=400_m=FNO_s=RFS_l=JAC_20250617_131205/n=400_e=400_m=FNO_s=RFS_l=JAC_epoch=299_val_rel_l2_loss=0.0156.ckpt"
     elif loss_type == "RAND":
         config = load_config("output/n=128_e=8_m=FNO_s=RAND_l=JAC_20250421_124311/config.yaml")
         ckpt_path = f"checkpoints/n=128_e=8_m=FNO_s=RAND_l=JAC_20250421_125959/last.ckpt"
@@ -721,7 +745,7 @@ if __name__ == "__main__":
             random.setstate(state["random_state"])
 
     # Load Data
-    if num_vec == 200:
+    if num_vec == 200 or num_vec == 400:
         print("200!")
         data_config = load_config("output/n=400_e=200_m=FNO_s=RFS_l=JAC_20250615_133916/config.yaml")
         print(data_config.experiment.dataset_type, data_config.data_settings)
@@ -862,10 +886,10 @@ if __name__ == "__main__":
 
         # initial guess logic …
         if initial_guess == "smooth":
-            # zero_X = apply_gaussian_smoothing(x, kernel_size, sigma)
-            zero_X = torch.ones(x.shape).to(device) * x.amin()
-            zero_X[..., 45:-45] = x.amax()
-            zero_X = zero_X.detach()
+            zero_X = apply_gaussian_smoothing(x, kernel_size, sigma)
+            # zero_X = torch.ones(x.shape).to(device) * x.amin()
+            # zero_X[..., 45:-45] = x.amax()
+            # zero_X = zero_X.detach()
         elif initial_guess == "noisy":
             zero_X = x + torch.randn_like(x) * noise_std
         elif initial_guess == "prior_mean":
@@ -916,13 +940,13 @@ if __name__ == "__main__":
     # # Save all loss and metric data to CSV.
 
     if loss_type == "JAC" and top_subsampling == False:
-        csv_file = f"loss_statistics_multiple_samples_{loss_type}_{num_vec}_{initial_guess}.csv"
+        csv_file = f"loss_statistics_multiple_samples_{loss_type}_{num_vec}_{initial_guess}_NGD.csv"
     elif loss_type == "JAC" and top_subsampling == True:
-        csv_file = f"loss_statistics_multiple_samples_{loss_type}_{num_vec}_{initial_guess}_top.csv"
+        csv_file = f"loss_statistics_multiple_samples_{loss_type}_{num_vec}_{initial_guess}_top_NGD.csv"
     elif loss_type != "JAC" and top_subsampling == False:
-        csv_file = f"loss_statistics_multiple_samples_{loss_type}_{initial_guess}.csv"
+        csv_file = f"loss_statistics_multiple_samples_{loss_type}_{initial_guess}_NGD.csv"
     else:
-        csv_file = f"loss_statistics_multiple_samples_{loss_type}_{initial_guess}_top.csv"
+        csv_file = f"loss_statistics_multiple_samples_{loss_type}_{initial_guess}_top_NGD.csv"
 
     df.to_csv(csv_file, index=False)
     print(f"Loss data saved to {csv_file}")
