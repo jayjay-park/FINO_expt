@@ -63,11 +63,17 @@ class FIMReducedModel(ReducedModel):
             
             return eigenvectors, S
 
-    def _compute_single_grad(self, simulator, x_np, probe_2d, p_fwd):
+    def _compute_single_grad(self, simulator, x_np, probe_2d, p_fwd, simulator_type, i, vjp_func):
         """
         Run in a worker thread. Returns a flat gradient of shape (p,).
         """
-        g = simulator.model.compute_gradient(x_np, probe_2d, p_fwd).reshape(-1)  # [d,d]
+        if simulator_type == "DARCY":
+            g = simulator.model.compute_gradient(x_np, probe_2d, p_fwd).reshape(-1)  # [d,d]
+        else:
+            print("i", i)
+            probe_2d_gpu = torch.tensor(probe_2d)
+            g = vjp_func(probe_2d_gpu)[0].reshape(-1)
+            print("g", g.shape)
         return g
 
 
@@ -98,6 +104,11 @@ class FIMReducedModel(ReducedModel):
             p_fwd = simulator.model.eval_fwd_op(
                 f, x_np, simulator.T, return_array=False
             )
+        else:
+            x_np = torch.tensor(x).cuda()
+            print("before")
+            _, vjp_func = torch.func.vjp(simulator, x_np)
+            print("after")
 
         # 4) prepare numpy probes for each thread
         probes_np = probe_flat.cpu().numpy().reshape(r, d, d)  # [r, d, d]
@@ -106,7 +117,7 @@ class FIMReducedModel(ReducedModel):
         grads_np = np.empty((r, p), dtype=np.float32)
         with ThreadPoolExecutor() as exe:
             futures = {
-                exe.submit(self._compute_single_grad, simulator, x_np, probes_np[i], p_fwd): i
+                exe.submit(self._compute_single_grad, simulator, x_np, probes_np[i], p_fwd, self.simulator_type, i, vjp_func): i
                 for i in range(r)
             }
             for fut in as_completed(futures):

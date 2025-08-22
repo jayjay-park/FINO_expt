@@ -57,3 +57,4 @@ train/prior_*
 *.sbatch
 datasets/*.sbatch
 old_code/
+datasets/PINO_NS

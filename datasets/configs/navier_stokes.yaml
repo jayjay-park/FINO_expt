@@ -17,8 +17,8 @@ data_settings:
   data_dir: "datasets/dataset_NS/samples"
 
 simulator_settings:
-  s1: 128 # Grid size
-  s2: 128 # Grid size
+  s1: 64 # Grid size
+  s2: 64 # Grid size
   scale: 10.0
   T: 1.0
   Re: 100
@@ -28,7 +28,7 @@ simulator_settings:
   nsteps: 1000
 
 reduced_model_settings:
-  probe_size: 256
+  probe_size: 80
   noise_std: 0.2
   eigen_value_fraction: 0.01
   eigen_vector_count: 2 # Overrides eigen_value_fraction if set

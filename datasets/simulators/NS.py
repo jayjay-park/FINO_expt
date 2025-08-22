@@ -6,6 +6,7 @@ import math
 from .base import Simulator
 from scipy.fft import fft2, ifft2, fftshift
 import torch.fft as fft
+import torch.utils.checkpoint as checkpoint
 
 class NavierStokesSimulator(torch.nn.Module):
     '''
@@ -217,12 +218,23 @@ class NavierStokesSimulator(torch.nn.Module):
             w0 = self.advance(w0)
         return w0
     
+    # def forward(self, w):
+    #     for i in range(self.nsteps):
+    #         if (i + 1) % 5 == 0:
+    #             print(f"NS Simulator Step {i + 1} of {self.nsteps}")
+    #         w = self.advance(w)
+    #     return w
+
     def forward(self, w):
         for i in range(self.nsteps):
-            if (i + 1) % 100 == 0:
+            if (i + 1) % 5 == 0:
                 print(f"NS Simulator Step {i + 1} of {self.nsteps}")
-            w = self.advance(w)
+
+            # checkpoint the advance step
+            w = checkpoint.checkpoint(self.advance, w)
+
         return w
+
 
     def plot_data(self, x, y, v, Jvp, file_path="plot.png", title="NS Sample Plot"):
         """

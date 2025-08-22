@@ -178,6 +178,8 @@ def generate_dataset(simulator, reduced_model, data_settings, viz_settings, simu
                 # Qb  = reduced_model.compute_active_subspace(simulator, x_b, idx_list)  # [p, r]
 
         Q_tilde = torch.cat(Q_list, dim=1)  # [p, r * num_subsamples]
+        with h5py.File(f"Q_tilde_{self.simulator_type}.h5", "w") as f:
+            f.create_dataset("Q_tilde", data=Q_tilde.cpu().numpy())
         print("Q_tilde shape:", Q_tilde.shape)
 
         # --- SVD ---
