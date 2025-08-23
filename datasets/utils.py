@@ -25,13 +25,10 @@ def create_simulator(model_type, simulator_settings):
         from simulators.NS import NavierStokesSimulator
         return NavierStokesSimulator(simulator_settings['s1'], 
                                      simulator_settings['s2'],
-                                     simulator_settings['scale'],
-                                     simulator_settings['T'], 
                                      simulator_settings['Re'],
-                                     simulator_settings['adaptive'],
-                                     simulator_settings['delta_t'],
-                                     simulator_settings['nburn'],
-                                     simulator_settings['nsteps'])
+                                     simulator_settings['T'], 
+                                     simulator_settings['nsteps']
+                                     simulator_settings['delta_t'])
     elif model_type == "OldNS":
         from simulators.oldNS import OldNavierStokesSimulator
         return OldNavierStokesSimulator(simulator_settings['N'], 
