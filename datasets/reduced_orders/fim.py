@@ -63,7 +63,7 @@ class FIMReducedModel(ReducedModel):
             
             return eigenvectors, S
 
-    def _compute_single_grad(self, simulator, x_np, probe_2d, p_fwd, simulator_type, i, vjp_func):
+    def _compute_single_grad(self, simulator, x_np, probe_2d, p_fwd, simulator_type, i, vjp_func, d):
         """
         Run in a worker thread. Returns a flat gradient of shape (p,).
         """
@@ -71,10 +71,10 @@ class FIMReducedModel(ReducedModel):
             g = simulator.model.compute_gradient(x_np, probe_2d, p_fwd).reshape(-1)  # [d,d]
         else:
             print("i", i)
-            probe_2d_gpu = torch.tensor(probe_2d)
-            g = vjp_func(probe_2d_gpu)[0].reshape(-1)
+            g = vjp_func(probe_2d)[0].reshape(-1)
+            simulator.plot_vorticity(g.detach().cpu().reshape(d, d), i)
             print("g", g.shape)
-        return g
+        return g.detach().cpu().numpy()
 
 
     def compute_score_matrix(self, simulator, x, L):
@@ -104,20 +104,23 @@ class FIMReducedModel(ReducedModel):
             p_fwd = simulator.model.eval_fwd_op(
                 f, x_np, simulator.T, return_array=False
             )
+            # 4) prepare numpy probes for each thread
+            probes = probe_flat.cpu().numpy().reshape(r, d, d)  # [r, d, d]
         else:
-            x_np = torch.tensor(x).cuda()
+            simulator.plot_vorticity(x, -1)
+            x_np = torch.tensor(x).cuda()#.clone()
             print("before")
-            _, vjp_func = torch.func.vjp(simulator, x_np)
+            out, vjp_func = torch.func.vjp(simulator, x_np)
             print("after")
+            simulator.plot_vorticity(out.detach().cpu(), -3)
+            probes = probe_flat.reshape(r, d, d)
 
-        # 4) prepare numpy probes for each thread
-        probes_np = probe_flat.cpu().numpy().reshape(r, d, d)  # [r, d, d]
 
         # 5) thread-parallel compute_gradient calls
         grads_np = np.empty((r, p), dtype=np.float32)
         with ThreadPoolExecutor() as exe:
             futures = {
-                exe.submit(self._compute_single_grad, simulator, x_np, probes_np[i], p_fwd, self.simulator_type, i, vjp_func): i
+                exe.submit(self._compute_single_grad, simulator, x_np, probes[i], p_fwd, self.simulator_type, i, vjp_func, d): i
                 for i in range(r)
             }
             for fut in as_completed(futures):

@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-#SBATCH --job-name=Active_Subspace # Job name
+#SBATCH --job-name=L_prior # Job name
 #SBATCH --output=outs/data1.txt
 #SBATCH --time=200:00:00
 #SBATCH -p gpu
@@ -11,6 +11,6 @@ module load Miniconda/3           # Load module dependencies
 module load ompi-cpu
 # Example Process
 
-source activate denoising_shiqin
+source activate defino-env
 export NEPTUNE_API_TOKEN="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJhZWU1MzcwYy0yYjJmLTRmNzYtOTJkYy02MWNlMmZmM2Y3ZDMifQ=="
-python main.py --config configs/AS/darcy1.yaml
+python main.py --config configs/navier_stokes.yaml

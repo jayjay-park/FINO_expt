@@ -27,7 +27,6 @@ def create_simulator(model_type, simulator_settings):
                                      simulator_settings['s2'],
                                      simulator_settings['Re'],
                                      simulator_settings['T'], 
-                                     simulator_settings['nsteps']
                                      simulator_settings['delta_t'])
     elif model_type == "OldNS":
         from simulators.oldNS import OldNavierStokesSimulator
@@ -165,6 +164,7 @@ def generate_dataset(simulator, reduced_model, data_settings, viz_settings, simu
         for b in range(num_subsamples):
             print(f"Computing Q_b for subsample {b+1}/{num_subsamples}", flush=True)
             x_b = simulator.sample().detach().cpu().numpy()
+            simulator.plot_vorticity(x_b, -2)
             if reduced_model_type == "FIM":
                 Qb  = reduced_model.compute_score_matrix(simulator, x_b, L)  # [p, r]
                 Q_list.append(Qb)
@@ -175,7 +175,7 @@ def generate_dataset(simulator, reduced_model, data_settings, viz_settings, simu
                 # Qb  = reduced_model.compute_active_subspace(simulator, x_b, idx_list)  # [p, r]
 
         Q_tilde = torch.cat(Q_list, dim=1)  # [p, r * num_subsamples]
-        with h5py.File(f"Q_tilde_{self.simulator_type}.h5", "w") as f:
+        with h5py.File(f"Q_tilde_{simulator_type}.h5", "w") as f:
             f.create_dataset("Q_tilde", data=Q_tilde.cpu().numpy())
         print("Q_tilde shape:", Q_tilde.shape)
 

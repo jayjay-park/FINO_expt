@@ -363,7 +363,7 @@ if __name__ == "__main__":
     L1, L2 = 2*math.pi, 2*math.pi  # Domain size
     Re = 200  # Reynolds number
     T = 10.0  # Simulation time
-    num_time_steps = 1000
+    num_time_steps = 500
     time_step = T / num_time_steps
     print("time_step", time_step)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -378,14 +378,6 @@ if __name__ == "__main__":
     bsize=1
     w = GRF.sample(bsize).cuda().squeeze()
 
-    # size = (s1, s2)  # Grid size
-    # scale = 20.0       # Controls smoothness
-    # random_seed = 42   # Set seed for reproducibility
-
-    # Generate the field
-    # w = gaussian_random_field_2d(size, scale, random_seed)
-    # w = w.cuda()
-
     # Optionally, define a forcing function (or set to None)
     t = torch.linspace(0, 1, s1 + 1, device=device)
     t = t[0:-1]
@@ -395,24 +387,38 @@ if __name__ == "__main__":
 
     # Run the simulation to get the vorticity at time T
     # w_t_final = ns_solver(w, f=f, T=T, Re=Re)
+    # plot_vorticity(w_t_final.squeeze().detach().cpu(), 1500)
 
-    # If you want to generate multiple time steps and store them, you can modify the code like this:
-    vorticity_data = []
+    # Initial condition (requires grad not needed for jvp)
+    w0 = w.clone()
 
-    w_current = w
-    for i in range(num_time_steps):
-        w_current = ns_solver(w_current, f=f, T=time_step, Re=Re)
-        vorticity_data.append(w_current.cpu().numpy())  # Store the result
+    # Direction vector (perturbation)
+    v = torch.randn_like(w0)
+    v1 = torch.randn_like(w0)
 
-    print("vorticity data shape", torch.tensor(vorticity_data).shape)
+    # Define function: advance by T=10 * Δt
+    fwd = lambda w: ns_solver(w, f=f, T=T, Re=Re)
 
-    # Assuming 'w_t_final' is the final vorticity from the solver (shape s1 x s2)
-    # # Convert tensor to numpy if not already
-    # vorticity_field = w_t_final.cpu().numpy()
+    # Compute forward state and Jv
+    w10, jvp_val = torch.func.jvp(fwd, (w0,), (v,))
+    plot_vorticity(w10.squeeze().detach().cpu(), 2000)
+    plot_vorticity(jvp_val.squeeze().detach().cpu(), 3000)
 
-    # # Plot the final vorticity field
-    # plot_vorticity(vorticity_field, T, title="Final Vorticity Field")
+    print("w10 shape:", w10.shape)       # (s1, s2)
+    print("Jv shape :", jvp_val.shape)   # (s1, s2)
 
-    # To plot intermediate vorticity fields from vorticity_data (generated for multiple steps)
-    for i, vorticity_step in enumerate(vorticity_data):
-        plot_vorticity(vorticity_step.squeeze(), i, title=f"Vorticity Field at Time Step {i + 1}")
+
+    # # If you want to generate multiple time steps and store them, you can modify the code like this:
+    # vorticity_data = []
+
+    # w_current = w
+    # for i in range(num_time_steps):
+    #     w_current = ns_solver(w_current, f=f, T=time_step, Re=Re)
+    #     vorticity_data.append(w_current.cpu().numpy())  # Store the result
+
+    # print("vorticity data shape", torch.tensor(vorticity_data).shape)
+
+    # # To plot intermediate vorticity fields from vorticity_data (generated for multiple steps)
+    # for i, vorticity_step in enumerate(vorticity_data):
+    #     if i % 10 == 0:
+    #         plot_vorticity(vorticity_step.squeeze(), i, title=f"Vorticity Field at Time Step {i + 1}")
