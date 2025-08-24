@@ -1,6 +1,7 @@
 import torch
 import math
 import matplotlib.pyplot as plt
+import numpy as np
 from PINO_NS import NavierStokes2d, GaussianRF   # import the real solver
 
 class NavierStokesSimulator(torch.nn.Module):
@@ -55,7 +56,7 @@ class NavierStokesSimulator(torch.nn.Module):
 
     def plot_vorticity(self, w, step=0, file_path="vorticity.png", title="Vorticity Field"):
         fig, ax = plt.subplots(figsize=(6, 6))
-        im = ax.imshow(w, cmap="jet", origin="lower", extent=[0, 1., 0, 1.])
+        im = ax.imshow(w, cmap="jet")
         fig.colorbar(im, ax=ax, label="Vorticity", fraction=0.045, pad=0.06)
         ax.set_title(title)
         fig.savefig(file_path.replace(".png", f"_{step}.png"), dpi=150, bbox_inches="tight")

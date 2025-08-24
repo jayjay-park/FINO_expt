@@ -203,6 +203,7 @@ def generate_dataset(simulator, reduced_model, data_settings, viz_settings, simu
     def process_sample(i):
         print(f"Generating sample {i + 1}/{num_samples}", flush=True)
         x = simulator.sample()
+        print("x", x.shape)
         device = x.device
         p = simulator.range
         r = eigen_count
@@ -231,7 +232,7 @@ def generate_dataset(simulator, reduced_model, data_settings, viz_settings, simu
             y_np = simulator.model.eval_fwd_op(f, x.cpu().numpy(), simulator.T)
             y    = torch.as_tensor(y_np, device=device)
         else:
-            y, _ = torch.func.jvp(simulator, (x,), (torch.zeros_like(x),))  # just forward
+            y = simulator(x)  # just forward
 
         # 2) build all r tangent‐vectors at once: [r, *x.shape]
         vecs = v[:, :r].T.reshape(r, *x.shape).to(device)
@@ -245,6 +246,7 @@ def generate_dataset(simulator, reduced_model, data_settings, viz_settings, simu
             # batched call!
             Jvp_rows = vmap(_single_jvp)(vecs)               # [r, p]
             Jvp = Jvp_rows.transpose(0,1).contiguous()       # [p, r]
+            print("finished Jvp", Jvp[0])
 
         # 3b) Darcy: thread-parallel compute_linearization
         else:
@@ -270,6 +272,7 @@ def generate_dataset(simulator, reduced_model, data_settings, viz_settings, simu
 
         # optional plotting
         if i % plot_interval == 0:
+            print("creating plot")
             sample_dir = os.path.join(plots_dir, f"sample_{i}")
             os.makedirs(sample_dir, exist_ok=True)
             for e in range(plot_vector_count):
@@ -287,6 +290,7 @@ def generate_dataset(simulator, reduced_model, data_settings, viz_settings, simu
         # write out HDF5 for this sample
         plot_sampling_on_field_simple_blocks(y.cpu().numpy(), L, m_x, m_y)
         sample_path = os.path.join(data_dir, f"sample_{i}.h5")
+        print("created sample path")
         with h5py.File(sample_path, "w") as f:
             print("Creating h5 file", {i})
             f.create_dataset("x",   data=x.cpu().numpy())
