@@ -7,34 +7,37 @@ import matplotlib.gridspec as gridspec
 # ---------------------------
 # CONFIGURATION
 # ---------------------------
-initial_guess = "prior_mean"
+initial_guess = "smooth"
 type_opt = "GD"
-folder = "."
-dest_folder = "prior_mean_noise(0.01)_ood(+5)"
-expt_name = "output_outdist"
-output = True
+folder = "noise(0.01)_NS_smooth_partial(0.1)_lr=0.5_sample=10" #"prior_mean_noise(0.02)_tau(3)_partial(1)_org"
+dest_folder = "noise(0.01)_NS_smooth_partial(0.1)_lr=0.5_sample=10" 
+expt_name = "input_indist"
+output = False
 n_grid = 50
-len_traj = 1000
-num_bins = 100
+len_traj = 2000
+num_bins = 50
+data_type= "NS"
+dim = 64
 log_eps = 1e-8
+sample_idx = 2
 np.random.seed(42)
 
 # HDF5 files and model labels
 if output == True:
     h5_files = {
-        "JVP (rank=50)":  f"{folder}/inversion_history_output_JAC_50_{initial_guess}_{type_opt}.h5",
-        "JVP (rank=200)": f"{folder}/inversion_history_output_JAC_200_{initial_guess}_{type_opt}.h5",
-        "JVP (rank=400)": f"{folder}/inversion_history_output_JAC_400_{initial_guess}_{type_opt}.h5",
-        "MSE":            f"{folder}/inversion_history_output_MSE_{initial_guess}_{type_opt}.h5",
-        "Devito":         f"{folder}/inversion_history_output_Devito_{initial_guess}_{type_opt}.h5",
+        # "JVP (rank=50)":  f"{folder}/inversion_history_output_JAC_50_{initial_guess}_{type_opt}.h5",
+        # "JVP (rank=200)": f"{folder}/inversion_history_output_JAC_200_{initial_guess}_{type_opt}.h5",
+        "FINO": f"{folder}/inversion_history_output_JAC_{data_type}_400_{initial_guess}_{type_opt}.h5",
+        "Devito":         f"{folder}/inversion_history_output_Devito_{data_type}_{initial_guess}_{type_opt}.h5",
+        "MSE-FNO":            f"{folder}/inversion_history_output_MSE_{data_type}_{initial_guess}_{type_opt}.h5",
     }
 else:
     h5_files = {
-        "JVP (rank=50)":  f"{folder}/inversion_history_JAC_50_{initial_guess}_{type_opt}.h5",
-        "JVP (rank=200)": f"{folder}/inversion_history_JAC_200_{initial_guess}_{type_opt}.h5",
-        "JVP (rank=400)": f"{folder}/inversion_history_JAC_400_{initial_guess}_{type_opt}.h5",
-        "MSE":            f"{folder}/inversion_history_MSE_{initial_guess}_{type_opt}.h5",
-        "Devito":         f"{folder}/inversion_history_Devito_{initial_guess}_{type_opt}.h5",
+        # "JVP (rank=50)":  f"{folder}/inversion_history_JAC_50_{initial_guess}_{type_opt}.h5",
+        # "JVP (rank=200)": f"{folder}/inversion_history_JAC_200_{initial_guess}_{type_opt}.h5",
+        "FINO": f"{folder}/inversion_history_JAC_{data_type}_400_{initial_guess}_{type_opt}.h5",
+        "MSE-FNO":            f"{folder}/inversion_history_MSE_{data_type}_{initial_guess}_{type_opt}.h5",
+        "Numerical Simulator":         f"{folder}/inversion_history_Devito_{data_type}_{initial_guess}_{type_opt}.h5",
     }
 
 # ---------------------------
@@ -45,7 +48,7 @@ def compute_radial_psd(field_2d, num_bins=100):
     F = np.fft.fftshift(np.fft.fft2(field_2d))
     power = np.abs(F) ** 2
 
-    nx, ny = 128, 128
+    nx, ny = 64, 64
     kx = np.fft.fftshift(np.fft.fftfreq(nx))
     ky = np.fft.fftshift(np.fft.fftfreq(ny))
     kx, ky = np.meshgrid(kx, ky, indexing='ij')
@@ -57,6 +60,7 @@ def compute_radial_psd(field_2d, num_bins=100):
     for i in range(num_bins):
         mask = (k_mag >= k_bins[i]) & (k_mag < k_bins[i+1])
         if np.any(mask):
+            print(psd_avg.shape, power.shape, mask.shape)
             psd_avg[i] = power[mask].mean()
         else:
             psd_avg[i] = 0.0
@@ -67,9 +71,9 @@ def compute_radial_psd(field_2d, num_bins=100):
 def load_trajectory(h5_path):
     with h5py.File(h5_path, "r") as f:
         if output == True:
-            a_traj = f["u"][:].squeeze()  # shape: [T, H, W]
+            a_traj = f["u"][:].squeeze()[sample_idx]  # shape: [T, H, W]
         else:
-            a_traj = f["a"][:].squeeze()  # shape: [T, H, W]
+            a_traj = f["a"][:].squeeze()[sample_idx]  # shape: [T, H, W]
         return a_traj
 
 def compute_spectrum_evolution(a_traj, num_bins=100):
@@ -101,16 +105,16 @@ def plot_final_spectrum_curves(spectra_dict, num_bins=100):
     for label, spectra in spectra_dict.items():
         final_spectrum = spectra[-1]  # last iteration
         k_vals = np.arange(num_bins)
-        plt.plot(k_vals, final_spectrum + log_eps, label=label)
+        plt.plot(k_vals, final_spectrum + log_eps, label=label, alpha=0.7, linestyle="-.", linewidth=3)
 
     plt.yscale("log")
     plt.xscale("log")
     plt.xlabel("Wavenumber bin")
     plt.ylabel("Power Spectrum (log scale)")
     if output == True:
-        plt.title(r"Spectrum Comparison of $\mathbf{u_{1000}}$")
+        plt.title(r"Spectrum Comparison of $\mathbf{u_{2500}}$")
     else:
-        plt.title(r"Spectrum Comparison of $\mathbf{a_{1000}}$")
+        plt.title(r"Spectrum Comparison of $\mathbf{a_{2500}}$")
     plt.legend()
     plt.grid(True, which="both", linestyle="--", alpha=0.3)
     plt.tight_layout()

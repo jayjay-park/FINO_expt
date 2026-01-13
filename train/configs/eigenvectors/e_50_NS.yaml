@@ -1,0 +1,26 @@
+base_config: ../ns_default.yaml
+
+experiment:
+  name: "n=1000_e=50_m=FNO_s=RFS_l=JAC"
+  tags:
+    - "50 Eigenvector"
+    - "1000 samples"
+    - "FNO"
+    - "RFS"
+    - "JAC"
+
+data_settings:
+  eigen_count: 50
+  batch_size: 200
+
+model_settings:
+  train_eigen_count: 50
+
+training_settings:
+  accum_steps: 1
+  num_epoch: 500
+  num_train: 1000
+  num_test: 150
+  num_samples: 1000
+  num_GPU: 1
+  strategy: "ddp"

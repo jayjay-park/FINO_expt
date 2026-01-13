@@ -359,13 +359,11 @@ def plot_vorticity(vorticity_field, i, title="Vorticity Field"):
 
 if __name__ == "__main__":
     # Parameters
-    s1, s2 = 128, 128  # Grid size
+    s1, s2 = 64, 64  # Grid size
     L1, L2 = 2*math.pi, 2*math.pi  # Domain size
-    Re = 200  # Reynolds number
+    Re = 100 #200  # Reynolds number
     T = 10.0  # Simulation time
-    num_time_steps = 500
-    time_step = T / num_time_steps
-    print("time_step", time_step)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Initialize Navier-Stokes solver

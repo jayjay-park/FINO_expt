@@ -91,3 +91,10 @@ The training creates the following directories:
 - `checkpoints/`: Saved model checkpoints
 - `logs/`: Training logs
 - `output/`: Visualization outputs and metrics
+
+# FINO Inversion Setup
+
+## Visualization
+
+- `plot_inversion.py`: data residual, model error
+- `plot_inversion_ns.py`: relative error w.r.t numerical simulator

@@ -1,0 +1,35 @@
+base_config: ../VMB_MSE.yaml
+
+experiment:
+  name: "n=70_m=FNO_l=L2"
+  tags:
+    - "70 samples"
+    - "FNO"
+    - "VMB"
+    - "L2"
+
+data_settings:
+  batch_size: 5
+  eigen_count: 0
+  sample_directories:
+    - "/net/slimdata/jayjaydata2/DeFINO_Richard/datasets/datasets/dataset_VMB_easy_small"
+
+model_settings:
+  in_channels: 2
+  out_channels: 1
+  decoder_layer_size: 256
+  num_fno_layers: 3
+  num_fno_modes: [80, 80]
+  train_eigen_count: 0
+  loss_type: "L2"
+  reg_param: 5e-6
+  learning_rate: 5e-3
+
+training_settings:
+  accum_steps: 1
+  num_epoch: 400
+  num_train: 70
+  num_test: 10
+  num_samples: 70
+  num_GPU: 1
+  strategy: "ddp"

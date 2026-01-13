@@ -8,13 +8,48 @@ from pytorch_lightning.callbacks import Callback
 from matplotlib.colors import SymLogNorm, LinearSegmentedColormap
 import matplotlib.colors as colors
 from skimage.metrics import structural_similarity as ssim
-from pytorch_lightning.trainer.supporters import CombinedLoader
+try:
+    # Newer Lightning versions
+    from lightning.pytorch.utilities.combined_loader import CombinedLoader
+except ImportError:
+    # Fallback for older versions
+    from pytorch_lightning.trainer.supporters import CombinedLoader
+
 
 try:
     import neptune
     NEPTUNE_AVAILABLE = True
 except ImportError:
     NEPTUNE_AVAILABLE = False
+
+
+def _as_channel_first(arr):
+    """Return a numpy array with shape (C, H, W).
+
+    Accepts a torch.Tensor or numpy array. If a batch dimension is present (4D),
+    the first sample is selected. If input is 2D (H, W) it is promoted to (1, H, W).
+    """
+    if isinstance(arr, torch.Tensor):
+        a = arr.cpu().numpy()
+    else:
+        a = arr
+
+    # If array has batch dimension (N, C, H, W) or (N, H, W, C), select first sample
+    if a.ndim == 4:
+        a = a[0]
+
+    if a.ndim == 2:
+        return a[np.newaxis, ...]
+    elif a.ndim == 3:
+        return a
+    else:
+        raise ValueError(f"Unsupported array ndim {a.ndim} in _as_channel_first")
+
+
+def _first_channel_as_2d(arr):
+    """Return a 2D array (H, W) corresponding to the first channel of input."""
+    a = _as_channel_first(arr)
+    return a[0]
 
 class BaseVisualizationCallback(Callback):
     """Base class for visualization callbacks."""
@@ -409,42 +444,55 @@ class NSVisualizationCallback(BaseVisualizationCallback):
     def on_validation_epoch_end(self, trainer, pl_module):
         """Create visualization at the end of each validation epoch."""
         with torch.no_grad():
-            self.plot_ns_results(trainer, pl_module, trainer.val_dataloaders[0], "val")
+            val_loader = trainer.val_dataloaders
+            if isinstance(val_loader, (list, tuple)):
+                val_loader = val_loader[0]
+            self.plot_ns_results(trainer, pl_module, val_loader, "val")
             
     def plot_ns_data(self, x, y, pred):
-        fig, axes = plt.subplots(4, 1, figsize=(10, 15))
+        fig, axes = plt.subplots(5, 1, figsize=(10, 20))
         
-        # Convert tensors to numpy arrays
-        x_np = x[0].squeeze().cpu().numpy()
-        y_np = y[0].squeeze().cpu().numpy() 
-        pred_np = pred[0].squeeze().cpu().numpy()
+        # Convert tensors to numpy arrays and ensure channel-first (C, H, W)
+        x_np = _as_channel_first(x[0].squeeze())  # (C, H, W)
+        y_np = _first_channel_as_2d(y[0].squeeze())
+        pred_np = _first_channel_as_2d(pred[0].squeeze())
         
         # Calculate global min/max
         vmin = min(np.min(y_np), np.min(pred_np))
         vmax = max(np.max(y_np), np.max(pred_np))
+        vmax_98 = np.percentile(np.abs(y_np), 98)
         
-        # Input
-        im0 = axes[0].imshow(x_np, cmap='jet', vmin=np.min(x_np), vmax=np.max(x_np))
-        axes[0].set_title('Input Vorticity')
+        # Input channel 0
+        im0 = axes[0].imshow(x_np[0], cmap='jet', vmin=np.min(x_np), vmax=np.max(x_np))
+        axes[0].set_title('Input 0')
         fig.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
 
+        # Input channel 1 (if available)
+        if x_np.shape[0] >= 2:
+            im1 = axes[1].imshow(x_np[1], cmap='jet', vmin=np.min(x_np), vmax=np.max(x_np))
+            axes[1].set_title('Input 1')
+            fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+        else:
+            axes[1].axis('off')
+
         # Output
-        im1 = axes[1].imshow(y_np, cmap='jet', vmin=vmin, vmax=vmax)
-        axes[1].set_title('Output Vorticity')
-        fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+        im1 = axes[2].imshow(y_np, cmap='gray', vmin=-vmax_98, vmax=vmax_98)
+        axes[2].set_title('Output')
+        fig.colorbar(im1, ax=axes[2], fraction=0.046, pad=0.04)
         
         # Prediction
-        im2 = axes[2].imshow(pred_np, cmap='jet', vmin=vmin, vmax=vmax)
-        axes[2].set_title('Predicted Vorticity')
-        fig.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
+        im2 = axes[3].imshow(pred_np, cmap='gray', vmin=-vmax_98, vmax=vmax_98)
+        axes[3].set_title('Predicted')
+        fig.colorbar(im2, ax=axes[3], fraction=0.046, pad=0.04)
         
         # Error
-        im3 = axes[3].imshow(np.abs(y_np - pred_np), cmap='magma')
-        axes[3].set_title('Error')
-        fig.colorbar(im3, ax=axes[3], fraction=0.046, pad=0.04)
+        im3 = axes[4].imshow(np.abs(y_np - pred_np), cmap='magma')
+        axes[4].set_title('Error')
+        fig.colorbar(im3, ax=axes[4], fraction=0.046, pad=0.04)
         
         plt.tight_layout()
         return fig
+
             
     def plot_ns_results(self, trainer, pl_module, dataloader, tag):
 
@@ -455,9 +503,15 @@ class NSVisualizationCallback(BaseVisualizationCallback):
             plot_counter += 1
 
             x = batch['x'].to(pl_module.device)
+            # x = x.permute(0, 2, 1, 3)
             y = batch['y'].to(pl_module.device)
-            Jvp = batch['Jvp'].to(pl_module.device)
-            v = batch['v'].to(pl_module.device)
+            print("callbacks x shape:", x.shape)
+            if 'v' in batch:
+                Jvp = batch['Jvp'].to(pl_module.device)
+                v = batch['v'].to(pl_module.device)
+            else:
+                Jvp = None
+                v = None
             
             with torch.no_grad():
                 pred_Jvp = pl_module(x)
@@ -468,9 +522,11 @@ class NSVisualizationCallback(BaseVisualizationCallback):
             
             # Plot input, output, and predicted vorticity
             fig = self.plot_ns_data(x, y, pred_Jvp)
-            filename = f"ns_{tag}_sample_{batch['idx'][batch_idx]}_epoch_{trainer.current_epoch}.png"
+            # filename = f"ns_{tag}_sample_{batch['idx'][batch_idx]}_epoch_{trainer.current_epoch}.png"
+            filename = f"ns_{tag}_sample_{batch_idx}_epoch_{trainer.current_epoch}.png"
             self.save_figure(fig, filename)
-            self.log_figure(trainer, pl_module, fig, f"{tag}/sample_{batch['idx'][batch_idx]}/forward", trainer.current_epoch)
+            # self.log_figure(trainer, pl_module, fig, f"{tag}/sample_{batch['idx'][batch_idx]}/forward", trainer.current_epoch)
+            self.log_figure(trainer, pl_module, fig, f"{tag}/sample_{batch_idx}/forward", trainer.current_epoch)
             plt.close(fig)
 
 class NS_JVP_VisualizationCallback(BaseVisualizationCallback):
@@ -486,44 +542,72 @@ class NS_JVP_VisualizationCallback(BaseVisualizationCallback):
         """Create visualization at the end of each validation epoch."""
         with torch.no_grad():
             print("val")
-            self.plot_jvp_results(trainer, pl_module, trainer.val_dataloaders[0], "val")
+            val_loader = trainer.val_dataloaders
+            if isinstance(val_loader, (list, tuple)):
+                val_loader = val_loader[0]
+            self.plot_jvp_results(trainer, pl_module, val_loader, "val")
             
     def plot_jvp_data(self, v, Jvp, pred_Jvp):
-        
+        """Plot multiple JVPs and their inputs/predictions.
+
+        Handles inputs with shapes:
+          - (H, W, nvec)
+          - (C, H, W, nvec)  (channel-first, pick channel 0 for input display)
+          - the leading batch dim is removed with .squeeze(0) before plotting
+        """
+        # Move to numpy and remove leading batch dim if present
         v = v.squeeze(0).cpu().numpy()
         Jvp = Jvp.squeeze(0).cpu().numpy()
         pred_Jvp = pred_Jvp.squeeze(0).cpu().numpy()
 
+        # Determine number of eigenvectors (assumed on the last axis)
+        if Jvp.ndim >= 3:
+            nvec = Jvp.shape[-1]
+        else:
+            raise ValueError(f"Unexpected Jvp ndim={Jvp.ndim}")
+
         vmin = min(np.min(Jvp), np.min(pred_Jvp))
         vmax = max(np.max(Jvp), np.max(pred_Jvp))
         
-        cols = min(4, Jvp.shape[2])    
-        fig, axes = plt.subplots(4, 4, figsize=(15, 15))    
-        
-        for eig_idx in range(cols):
-            x_np = v[0, :, :, eig_idx]
-            y_np = Jvp[0, :, :, eig_idx] 
-            pred_np = pred_Jvp[0, :, :, eig_idx]
-            
+        cols = min(4, nvec)
+        fig, axes = plt.subplots(4, cols, figsize=(4*cols, 15))
+        plt.rcParams.update({'font.size': 10})
+
+        def _slice_for_vec(arr, eig_idx):
+            """Return a 2D array (H, W) for the given eig_idx from arr."""
+            if arr.ndim == 3:
+                # (H, W, nvec)
+                return arr[:, :, eig_idx]
+            elif arr.ndim == 4:
+                # (C, H, W, nvec) -> pick first channel for display
+                return arr[0, :, :, eig_idx]
+            else:
+                raise ValueError(f"Unsupported array shape for plotting: {arr.shape}")
+
+        for idx in range(cols):
+            x_np = _slice_for_vec(v, idx)
+            y_np = _slice_for_vec(Jvp, idx)
+            pred_np = _slice_for_vec(pred_Jvp, idx)
+
             # Input
-            im0 = axes[0, eig_idx].imshow(x_np, cmap='jet', vmin=np.min(v), vmax=np.max(v))
-            axes[0, eig_idx].set_title(f'Vector no. {eig_idx+1}')
-            fig.colorbar(im0, ax=axes[0, eig_idx], fraction=0.046, pad=0.04)
+            im0 = axes[0, idx].imshow(x_np, cmap='jet', vmin=np.min(v), vmax=np.max(v))
+            axes[0, idx].set_title(f'Vector no. {idx+1}')
+            fig.colorbar(im0, ax=axes[0, idx], fraction=0.046, pad=0.04)
 
             # Output
-            im1 = axes[1, eig_idx].imshow(y_np, cmap='jet', vmin=vmin, vmax=vmax)
-            axes[1, eig_idx].set_title(f'Jvp')
-            fig.colorbar(im1, ax=axes[1, eig_idx], fraction=0.046, pad=0.04)
-            
+            im1 = axes[1, idx].imshow(y_np, cmap='jet', vmin=vmin, vmax=vmax)
+            axes[1, idx].set_title(f'Jvp')
+            fig.colorbar(im1, ax=axes[1, idx], fraction=0.046, pad=0.04)
+
             # Prediction
-            im2 = axes[2, eig_idx].imshow(pred_np, cmap='jet', vmin=vmin, vmax=vmax)
-            axes[2, eig_idx].set_title(f'Pred Jvp')
-            fig.colorbar(im2, ax=axes[2, eig_idx], fraction=0.046, pad=0.04)
-            
+            im2 = axes[2, idx].imshow(pred_np, cmap='jet', vmin=vmin, vmax=vmax)
+            axes[2, idx].set_title(f'Pred Jvp')
+            fig.colorbar(im2, ax=axes[2, idx], fraction=0.046, pad=0.04)
+
             # Error
-            im3 = axes[3, eig_idx].imshow(np.abs(y_np - pred_np), cmap='magma')
-            axes[3, eig_idx].set_title(f'Error')
-            fig.colorbar(im3, ax=axes[3, eig_idx], fraction=0.046, pad=0.04)
+            im3 = axes[3, idx].imshow(np.abs(y_np - pred_np), cmap='magma')
+            axes[3, idx].set_title(f'Error')
+            fig.colorbar(im3, ax=axes[3, idx], fraction=0.046, pad=0.04)
         
         plt.tight_layout()
         return fig
@@ -539,29 +623,30 @@ class NS_JVP_VisualizationCallback(BaseVisualizationCallback):
 
             x = batch['x'].to(pl_module.device)
             y = batch['y'].to(pl_module.device)
-            Jvp = batch['Jvp'].to(pl_module.device)
-            v = batch['v'].to(pl_module.device)
-            print("v", v.shape)
-            # if tag == "val":
-            #     v_probe = v
-            # else:
-            #     v_probe = v
-            v_probe = v
+            if 'v' in batch:
+                Jvp = batch['Jvp'].to(pl_module.device)
+                v = batch['v'].to(pl_module.device)
+                v_probe = v
+                with torch.no_grad():
+                    pred_Jvp = pl_module(x)
             
-            with torch.no_grad():
-                pred_Jvp = pl_module(x)
-            
-            # Create visualizations
-            batch_idx = 0  # Visualize first sample in batch
-            vec_idx = 0    # Visualize first vector
-            
-            with torch.no_grad():
-                Jvp_pred = pl_module.compute_Jvp(x, v_probe, create_graph=False).detach()
-            fig = self.plot_jvp_data(v, Jvp, Jvp_pred)
-            filename = f"jvp_{tag}_sample_{batch['idx'][batch_idx]}_epoch_{trainer.current_epoch}.png"
-            self.save_figure(fig, filename)
-            self.log_figure(trainer, pl_module, fig, f"{tag}/sample_{batch['idx'][batch_idx]}/jvp", trainer.current_epoch)
-            plt.close(fig)
+                # Create visualizations
+                batch_idx = 0  # Visualize first sample in batch
+                vec_idx = 0    # Visualize first vector
+                
+                with torch.no_grad():
+                    Jvp_pred = pl_module.compute_Jvp(x, v_probe, create_graph=False).detach()
+                print("shapes", v.shape, Jvp.shape, Jvp_pred.shape)
+                fig = self.plot_jvp_data(v, Jvp, Jvp_pred)
+                filename = f"jvp_{tag}_sample_{batch['idx'][batch_idx]}_epoch_{trainer.current_epoch}.png"
+                # filename = f"jvp_{tag}_sample_{batch['idx'][batch_idx]}_epoch_{trainer.current_epoch}.png"
+                self.save_figure(fig, filename)
+                self.log_figure(trainer, pl_module, fig, f"{tag}/sample_{batch['idx'][batch_idx]}/jvp", trainer.current_epoch)
+                plt.close(fig)
+            else:
+                v = None
+                Jvp = None
+
 
 class NS_Inversion_VisualizationCallback(BaseVisualizationCallback):
     """Callback for visualizing NS inversion."""
@@ -573,10 +658,11 @@ class NS_Inversion_VisualizationCallback(BaseVisualizationCallback):
         self.invert_ns(trainer, pl_module, trainer.val_dataloaders[0], "val")
         
     def plot_ns_data(self, x0, x, y, x_pred):
-        x0 = x0.squeeze().cpu().numpy()
-        x = x.squeeze().cpu().numpy()
-        y = y.squeeze().cpu().numpy()
-        x_pred = x_pred.squeeze().cpu().numpy()
+        # Use first channel (or the 2D input) for visualization
+        x0 = _first_channel_as_2d(x0)
+        x = _first_channel_as_2d(x)
+        y = _first_channel_as_2d(y)
+        x_pred = _first_channel_as_2d(x_pred)
         
         vmin = min(np.min(x0), np.min(x), np.min(x_pred))
         vmax = max(np.max(x0), np.max(x), np.max(x_pred))
@@ -644,9 +730,10 @@ class NS_Inversion_VisualizationCallback(BaseVisualizationCallback):
                     x0.data -= pl_module.hparams.learning_rate * x0.grad.data # Use .data to modify tensor in-place
                     x0.grad.zero_() # Zero out gradients
                     
-                x0_np = x0.detach().cpu().numpy()[0, 0]
-                x_np = x.detach().cpu().numpy()[0, 0]
-                ssim_val = ssim(x0_np, x_np, data_range=x0_np.max()-x0_np.min())
+                # Extract first channel (H, W) for similarity metrics
+                x0_np = _first_channel_as_2d(x0.detach())
+                x_np = _first_channel_as_2d(x.detach())
+                ssim_val = ssim(x0_np, x_np, data_range=x0_np.max() - x0_np.min())
                 l2_val = np.linalg.norm(x0_np - x_np) / np.linalg.norm(x_np)
                 
                 trainer.logger.experiment[f"{tag}/sample_{batch['idx'][batch_idx]}/metrics_chart"].append(

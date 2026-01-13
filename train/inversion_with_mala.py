@@ -673,6 +673,7 @@ def mala_posterior_estimation(model, input_data, true_data,
             "acceptance_rate": accepted / (t + 1)
         })
 
+    print("accepted", accepted, "num_samples", num_samples)
     print(f"Final acceptance rate: {accepted / num_samples:.3f}")
 
     if diagnostics and len(posterior_set) > 0:
@@ -764,10 +765,10 @@ if __name__ == "__main__":
 
     '''Experimental Factor on Observation'''
     noise_std = 0.1 #0.08 #0.03
-    sub_sampling = False
+    sub_sampling = True
     top_subsampling = False
-    full_obs = True
-    ood_prior = True
+    full_obs = not sub_sampling
+    ood_prior = False
     ood_tau = 5.00 #3.05 #3.05
 
     '''Ploting Factor'''
@@ -831,8 +832,11 @@ if __name__ == "__main__":
         ckpt_path = f"checkpoints/n=128_e=8_m=FNO_s=RAND_l=JAC_20250421_125959/last.ckpt"
     elif loss_type == "MSE":
         config = load_config("configs/darcy_MSE.yaml")
-        ckpt_path = "checkpoints/DARCY_MSE/Darcy_training_epoch=249_val_rel_l2_loss=0.0009_MSE_May14.ckpt"
-
+        # ckpt_path = "checkpoints/DARCY_MSE/Darcy_training_epoch=249_val_rel_l2_loss=0.0009_MSE_May14.ckpt"
+        ckpt_path = "checkpoints/Darcy_training_20250615_133632/Darcy_training_epoch=199_val_rel_l2_loss=0.0133.ckpt"
+        # Numerical Simulator
+        forcing_term = torch.zeros(128, 128)
+        gw_torch_model = GroundwaterModel(forcing_term.shape[0])
     # Numerical Simulator
     forcing_term = torch.zeros(128, 128)
     gw_torch_model = GroundwaterModel(forcing_term.shape[0])

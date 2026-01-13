@@ -1,0 +1,24 @@
+base_config: ../ns_default.yaml
+
+experiment:
+  name: "n=1000_m=FNO_l=L2"
+  tags:
+    - "1000 samples"
+    - "FNO"
+    - "L2"
+
+data_settings:
+  batch_size: 200
+
+model_settings:
+  loss_type: "L2"
+  train_eigen_count: 0
+
+training_settings:
+  accum_steps: 1
+  num_epoch: 500
+  num_train: 1000
+  num_test: 150
+  num_samples: 1000
+  num_GPU: 1
+  strategy: "ddp"

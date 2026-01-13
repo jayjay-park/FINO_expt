@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-#SBATCH --job-name=L_prior # Job name
+#SBATCH --job-name=Dar_prior # Job name
 #SBATCH --output=outs/data1.txt
 #SBATCH --time=200:00:00
 #SBATCH -p gpu
@@ -14,4 +14,4 @@ module load Miniconda/3           # Load module dependencies
 
 source activate defino-env
 export NEPTUNE_API_TOKEN="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJhZWU1MzcwYy0yYjJmLTRmNzYtOTJkYy02MWNlMmZmM2Y3ZDMifQ=="
-python main.py --config configs/FIM_NS/ns_1.yaml
+python main.py --config configs/FIM/darcy1_correct.yaml

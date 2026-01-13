@@ -15,6 +15,7 @@ data_settings:
 
 model_settings:
   train_eigen_count: 200
+  reg_param: 0.001 # prev 0.05
 
 training_settings:
   accum_steps: 1
@@ -22,5 +23,5 @@ training_settings:
   num_train: 400
   num_test: 50
   num_samples: 400
-  num_GPU: 2
+  num_GPU: 1
   strategy: "ddp"

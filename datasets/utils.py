@@ -164,7 +164,7 @@ def generate_dataset(simulator, reduced_model, data_settings, viz_settings, simu
         for b in range(num_subsamples):
             print(f"Computing Q_b for subsample {b+1}/{num_subsamples}", flush=True)
             x_b = simulator.sample().detach().cpu().numpy()
-            simulator.plot_vorticity(x_b, -2)
+            # simulator.plot_vorticity(x_b, -2)
             if reduced_model_type == "FIM":
                 Qb  = reduced_model.compute_score_matrix(simulator, x_b, L)  # [p, r]
                 Q_list.append(Qb)
@@ -228,8 +228,8 @@ def generate_dataset(simulator, reduced_model, data_settings, viz_settings, simu
 
         # 1) compute y once
         if simulator_type == "DARCY":
-            f    = np.zeros(x.shape)
-            y_np = simulator.model.eval_fwd_op(f, x.cpu().numpy(), simulator.T)
+            f    = np.ones(x.shape) # computing y...
+            y_np = simulator.model.eval_fwd_op(f, x.cpu().numpy())
             y    = torch.as_tensor(y_np, device=device)
         else:
             y = simulator(x)  # just forward

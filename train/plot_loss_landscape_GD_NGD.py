@@ -2,161 +2,186 @@ import numpy as np
 import matplotlib.pyplot as plt
 import h5py
 import torch
-from matplotlib import cm
-from matplotlib import colors
+from matplotlib import cm, colors
+from typing import Dict, Callable, List, Tuple
 
-def plot_single(true1, path, cmap="jet", vmin=None, vmax=None):
-    plt.figure(figsize=(10, 10))
-    plt.rcParams.update({'font.size': 16})
-    print("vmin", vmin, vmax)
-    if vmin != 0:
-        norm = colors.TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax) if (vmin is not None and vmax is not None) else colors.CenteredNorm()
-    else:
-        norm = colors.Normalize(vmin=vmin, vmax=vmax) if (vmin is not None and vmax is not None) else colors.CenteredNorm()
-    
-    fig, ax = plt.subplots()
-    cax = ax.imshow(true1, cmap=cmap, norm=norm)
-    plt.colorbar(cax, ax=ax, fraction=0.045, pad=0.06)
-    ax.set_xticks([])
-    ax.set_yticks([])
-    plt.savefig(path, dpi=150, bbox_inches='tight')
-    plt.close()
-
-# --- CONFIGURATION ---
-initial_guess = "prior_mean"
+# ------------------------
+# Config
+# ------------------------
 device = "cpu"
-n_grid = 50 #100
-every_n = 10  # mark every n-th point
-folder = "." #"naturalperturb_pert=0.8_30000_lr=0.5" # "." train/naturalperturb_pert=0.8_30000_lr=0.5
-folder_NGD = "prior_mean_wonoise_NGD"
-folder_GD = "prior_mean_wonoise"
-dest_folder = "prior_mean_wonoise"
-expt_name = "input_ood=0_noise=0."
-np.random.seed(42)
+n_grid = 50
+every_n = 10
 len_traj = 999
-type_opt = "GD"
-ood = False
+save_path = "prior_mean_wonoise/loss_landscape_with_markers.png"
 
-# --- PATHS ---
-# h5_jac_50 = f"{folder}/inversion_history_JAC_50_{initial_guess}_{type_opt}.h5"
-# h5_jac_200 = f"{folder}/inversion_history_JAC_200_{initial_guess}_{type_opt}.h5"
-h5_jac = f"{folder_GD}/inversion_history_JAC_400_{initial_guess}.h5"
-h5_mse = f"{folder_GD}/inversion_history_MSE_{initial_guess}.h5"
-h5_devito = f"{folder_NGD}/inversion_history_Devito_{initial_guess}_NGD.h5"
+# H5 paths (example: your original three)
+paths = {
+    "NGD (Jvp FIM:400) + GD": "prior_mean_wonoise/inversion_history_JAC_400_prior_mean.h5",
+    "MSE + GD":               "prior_mean_wonoise/inversion_history_MSE_prior_mean.h5",
+    "Numerical Simulator (NGD)": "prior_mean_wonoise_NGD/inversion_history_Devito_prior_mean_NGD.h5",
+}
 
+# Choose which trajectories define the PCA plane (often: include all)
+basis_labels_for_pca = ["NGD (Jvp FIM:400) + GD", "MSE + GD", "Numerical Simulator (NGD)"]
 
-# --- LOAD TRAJECTORIES ---
-# with h5py.File(h5_jac_50, "r") as f:
-#     path_ngd_50 = f["a"][:]
-# print("done with 50")
-# with h5py.File(h5_jac_200, "r") as f:
-#     path_ngd_200 = f["a"][:]
-# print("done with 200")
-with h5py.File(h5_jac, "r") as f:
-    path_ngd = f["a"][:]
-print("done with 400")
-with h5py.File(h5_mse, "r") as f:
-    path_gd = f["a"][:]
-print("done with MSE")
-with h5py.File(h5_devito, "r") as f:
-    path_d = f["a"][:]
-print("done with NS")
+# Loss selection:
+# - "sim_target": MSE to a reference field (e.g., final simulator iterate)
+# - "network":    call a provided net loss closure per grid point
+loss_mode = "sim_target"
 
-# --- LOAD GROUND TRUTH ---
-# with h5py.File(f"{folder}/grf_sample_data_0.h5", "r") as f:
-#     x_true = torch.tensor(f["x"][:])
-#     i = torch.tensor(f["i"][:]).long()
-#     j = torch.tensor(f["j"][:]).long()
-#     ood_x = torch.tensor(f['ood_x'][:])
-# plot_single(x_true.squeeze(), f"{dest_folder}/grf_sample_0.png", "viridis")
-# plot_single(ood_x.squeeze(), f"{dest_folder}/grf_ood_0.png", "viridis")
+# If loss_mode = "sim_target", choose your reference:
+reference_from = "Numerical Simulator (NGD)"  # use final iterate of this traj as target
+target_shape = (128, 128)
 
-# --- FLATTEN ---
-# X_ngd_50 = path_ngd_50.squeeze(0).reshape(path_ngd_50.shape[1], -1)[:len_traj]
-# X_ngd_200 = path_ngd_200.squeeze(0).reshape(path_ngd_200.shape[1], -1)[:len_traj]
-X_ngd = path_ngd.squeeze(0).reshape(path_ngd.shape[1], -1)[:len_traj]
-X_gd = path_gd.squeeze(0).reshape(path_gd.shape[1], -1)[:len_traj]
-X_d = path_d.squeeze(0).reshape(path_d.shape[1], -1)[:len_traj]
-print("X_d", X_d[-1].shape)
+# If loss_mode = "network", provide a callable taking a (128,128) float32 torch.Tensor -> scalar float
+def net_loss_fn(x_tensor: torch.Tensor) -> float:
+    """
+    Example stub for trained-network loss.
+    Replace the body with your actual model/physics residual computation.
+    x_tensor shape: [128,128], dtype float32, on CPU here for simplicity.
+    Must return a Python float.
+    """
+    # Example: pretend the network returns a prediction g(x), and we compare to y_obs
+    # with mse. Replace with your real code.
+    # y_pred = trained_model(x_tensor.unsqueeze(0).unsqueeze(0))  # [1,1,128,128] for example
+    # loss = torch.nn.functional.mse_loss(y_pred.squeeze(), y_obs_tensor)
+    # return float(loss.item())
+    raise NotImplementedError("Plug your trained network loss here.")
 
-# --- PCA Projection Basis (v1, v2) ---
-# X_basis = np.vstack([X_d, X_ngd_200, X_ngd, X_gd]) # X_d
-X_basis = np.vstack([X_d])
-X_mean = X_basis.mean(axis=0)
-U, S, Vh = np.linalg.svd(X_basis - X_mean, full_matrices=False)
-v1, v2 = Vh[:2]
+# ------------------------
+# Helpers
+# ------------------------
+def load_traj(h5_path: str, key: str = "a", take: int = None) -> np.ndarray:
+    """
+    Returns flattened trajectory array of shape [T, D].
+    Assumes stored as [1, T, H, W] or [1, T, ...] and squeezes dim 0.
+    """
+    with h5py.File(h5_path, "r") as f:
+        arr = f[key][:]
+    arr = arr.squeeze(0)  # [T, ...]
+    T = arr.shape[0] if take is None else min(take, arr.shape[0])
+    flat = arr[:T].reshape(T, -1)
+    return flat
 
-print("after pca")
+def get_all_trajs(paths_dict: Dict[str, str], take: int) -> Dict[str, np.ndarray]:
+    out = {}
+    for label, p in paths_dict.items():
+        out[label] = load_traj(p, take=take)
+    return out
 
-# # Get dimensionality
-# dim = X_d.shape[1]
+def compute_pca_basis(X_list: List[np.ndarray]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    X_basis = np.vstack(X_list)
+    X_mean = X_basis.mean(axis=0)
+    U, S, Vh = np.linalg.svd(X_basis - X_mean, full_matrices=False)
+    v1, v2 = Vh[:2]
+    return X_mean, v1, v2
 
-# # Sample two random orthonormal directions
-# random_matrix = np.random.randn(2, dim)
-# q, _ = np.linalg.qr(random_matrix.T)  # Orthonormalize
-# v1, v2 = q.T  # v1, v2 are now orthonormal directions in R^dim
+def project_coords(X: np.ndarray, X_mean: np.ndarray, v1: np.ndarray, v2: np.ndarray) -> np.ndarray:
+    # Returns [T, 2]
+    delta = X - X_mean
+    return np.stack([delta @ v1, delta @ v2], axis=1)
 
+def make_grid(X_mean: np.ndarray, v1: np.ndarray, v2: np.ndarray, coords_list: List[np.ndarray], n_grid: int):
+    all_coords = np.vstack(coords_list)
+    max_extent = float(np.max(np.abs(all_coords)) * 1.1 + 1e-8)
+    xx, yy = np.meshgrid(np.linspace(-max_extent, max_extent, n_grid),
+                         np.linspace(-max_extent, max_extent, n_grid))
+    X_grid = X_mean[None, :] + xx[..., None] * v1 + yy[..., None] * v2
+    return xx, yy, X_grid
 
-def project(x): return np.array([(x - X_mean) @ v1, (x - X_mean) @ v2])
-coords_d = np.array([project(x) for x in X_d])
-coords_ngd = np.array([project(x) for x in X_ngd])
-# coords_ngd_200 = np.array([project(x) for x in X_ngd_200])
-# coords_ngd_50 = np.array([project(x) for x in X_ngd_50])
-coords_gd = np.array([project(x) for x in X_gd])
+def mse_to_target(x_flat: np.ndarray, target_flat: np.ndarray, shp: Tuple[int, int]) -> float:
+    x = torch.tensor(x_flat.reshape(shp), dtype=torch.float32)
+    tgt = torch.tensor(target_flat.reshape(shp), dtype=torch.float32)
+    return float(torch.nn.functional.mse_loss(x, tgt).item())
 
-# --- Define loss ---
-mse = torch.nn.MSELoss()
-def loss_fn(x_flat):
-    x = torch.tensor(x_flat.reshape(128, 128), dtype=torch.float32)
-    X_d_final = torch.tensor(X_d[-1]).reshape(128,128)
-    if ood == True:
-        return mse(x, ood_x).item()
-    else:
-        return mse(x, X_d_final)
+# ------------------------
+# Load trajectories
+# ------------------------
+trajs = get_all_trajs(paths, take=len_traj)
 
-# --- 2D Grid for Loss Evaluation ---
-# all_coords = np.vstack([coords_d, coords_ngd, coords_gd, coords_ngd_50, coords_ngd_200])
-all_coords = np.vstack([coords_ngd, coords_d, coords_gd])
-max_extent = np.max(np.abs(all_coords)) * 1.1
-xx, yy = np.meshgrid(np.linspace(-max_extent, max_extent, n_grid),
-                     np.linspace(-max_extent, max_extent, n_grid))
-X_grid = X_mean[None, :] + xx[..., None]*v1 + yy[..., None]*v2
-X_grid_flat = X_grid.reshape(-1, v1.shape[0])
+# Choose target for "sim_target" loss
+if loss_mode == "sim_target":
+    assert reference_from in trajs, f"reference_from='{reference_from}' not found in trajs"
+    target_flat = trajs[reference_from][-1].copy()  # final iterate of chosen trajectory
 
-print("Evaluating loss...")
-loss_vals = np.array([loss_fn(x) for x in X_grid_flat]).reshape(n_grid, n_grid)
+# PCA plane
+X_mean, v1, v2 = compute_pca_basis([trajs[lbl] for lbl in basis_labels_for_pca])
 
-# --- PLOT ---
+# Project each trajectory
+coords = {lbl: project_coords(X, X_mean, v1, v2) for lbl, X in trajs.items()}
+
+# Grid for loss evaluation
+xx, yy, X_grid = make_grid(X_mean, v1, v2, list(coords.values()), n_grid=n_grid)
+X_grid_flat = X_grid.reshape(-1, X_mean.shape[0])
+
+# ------------------------
+# Loss evaluation on grid
+# ------------------------
+print("Evaluating loss grid...")
+loss_vals = np.zeros((n_grid * n_grid,), dtype=np.float64)
+
+if loss_mode == "sim_target":
+    # Vectorized batching for speed
+    B = 2048  # batch size for loss eval
+    for s in range(0, X_grid_flat.shape[0], B):
+        e = min(s + B, X_grid_flat.shape[0])
+        batch = X_grid_flat[s:e]
+        # Pure NumPy->Torch MSE to reference
+        losses = [mse_to_target(b, target_flat, target_shape) for b in batch]
+        loss_vals[s:e] = np.asarray(losses, dtype=np.float64)
+
+elif loss_mode == "network":
+    # Use your trained network loss callable
+    B = 256
+    torch.set_grad_enabled(False)
+    for s in range(0, X_grid_flat.shape[0], B):
+        e = min(s + B, X_grid_flat.shape[0])
+        batch = X_grid_flat[s:e]
+        losses = []
+        for b in batch:
+            x_t = torch.tensor(b.reshape(target_shape), dtype=torch.float32, device=device)
+            losses.append(float(net_loss_fn(x_t)))
+        loss_vals[s:e] = np.asarray(losses, dtype=np.float64)
+    torch.set_grad_enabled(True)
+else:
+    raise ValueError(f"Unknown loss_mode: {loss_mode}")
+
+loss_vals = loss_vals.reshape(n_grid, n_grid)
+
+# ------------------------
+# Plot
+# ------------------------
 plt.figure(figsize=(10, 8))
-contour = plt.contour(xx, yy, loss_vals, levels=30, cmap='jet')
-plt.clabel(contour, fmt="%.4e", inline=True, fontsize=8)
+contour = plt.contour(xx, yy, loss_vals, levels=30, cmap="jet")
+plt.clabel(contour, fmt="%.3e", inline=True, fontsize=8)
 
-
-# Plot color-varying trajectories
-def plot_traj(coords, cmap, label):
-    T = len(coords)
+def plot_traj(c: np.ndarray, cmap, label: str, mark_start_end: bool = True):
+    T = len(c)
     for t in range(T - 1):
-        plt.plot(*zip(coords[t], coords[t+1]), color=cmap(t / T))
-    dots = coords[::every_n]
+        plt.plot(*zip(c[t], c[t+1]), color=cmap(t / T))
+    dots = c[::every_n]
     plt.plot(dots[:, 0], dots[:, 1], 'o', color=cmap(0.7), markersize=3, label=f"{label} (every {every_n})")
-    if label == "Numerical Simulator":
-        plt.plot(coords[0, 0], coords[0, 1], 'o', color='black', markersize=6, label=f"Start")
-        plt.plot(coords[-1, 0], coords[-1, 1], 'X', color='black', markersize=6, label=f"End")
-    else:
-        plt.plot(coords[0, 0], coords[0, 1], 'o', color='black', markersize=6)
-        plt.plot(coords[-1, 0], coords[-1, 1], 'X', color='black', markersize=6)
+    if mark_start_end:
+        plt.plot(c[0, 0], c[0, 1], 'o', color='black', markersize=6, label="Start")
+        plt.plot(c[-1, 0], c[-1, 1], 'X', color='black', markersize=6, label="End")
 
-plot_traj(coords_d, cm.Greens, "Numerical Simulator with NGD")
-plot_traj(coords_ngd, cm.Blues, "Jvp (FIM: 400) with GD")
-# plot_traj(coords_ngd_200, cm.Purples, "Jvp (FIM: 200)")
-# plot_traj(coords_ngd_50, cm.Greys, "Jvp (FIM: 50)")
-plot_traj(coords_gd, cm.Reds, "MSE with GD")
+# Preserve your color choices
+for lbl, c in coords.items():
+    if "Numerical" in lbl:
+        plot_traj(c, cm.Greens, lbl)
+    elif "MSE" in lbl:
+        plot_traj(c, cm.Reds, lbl)
+    else:
+        plot_traj(c, cm.Blues, lbl)
 
 plt.xlabel("Principal Direction 1")
 plt.ylabel("Principal Direction 2")
-plt.title("Loss Contours and Optimization Trajectories")
+title_loss = "MSE to simulator final" if loss_mode == "sim_target" else "Trained-network loss"
+plt.title(f"Loss Contours ({title_loss}) and Optimization Trajectories")
 plt.grid(True)
 plt.legend(loc="upper right")
 plt.tight_layout()
-plt.savefig(f"{dest_folder}/loss_landscape_with_markers_{expt_name}_{len_traj}_{type_opt}_GD_NGD.png", dpi=150)
+plt.savefig(save_path, dpi=150)
+plt.close()
+print(f"Saved figure to: {save_path}")
 

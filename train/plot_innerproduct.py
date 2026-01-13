@@ -8,22 +8,29 @@ import matplotlib.pyplot as plt
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. CONFIGURE PATHS & PARAMETERS
 # ─────────────────────────────────────────────────────────────────────────────
-folder      = "prior_mean_noise(0.01)_ood(+5)"
-initial     = 'prior_mean'
+folder      = "prior_mean_noise(0.01)_tau(3)_partial(0.25)_correct"
+initial     = "prior_mean"#'prior_mean'
 gd_type     = '_GD'
-max_iter    = 1000           # number of iterations in your H5 files
+max_iter    = 800           # number of iterations in your H5 files
 every       = 100            # how often to draw markers
-expt_name   = "input_outdist"
-dest_folder = "prior_mean_noise(0.01)_ood(+5)"
+expt_name   = "input_indist"
+dest_folder = folder
 os.makedirs(dest_folder, exist_ok=True)
 
 # gradient files
+# true_grad_file = f"{folder}/inversion_history_gradient_NS_Devito_{initial}{gd_type}.h5"
 true_grad_file = f"{folder}/inversion_history_gradient_Devito_{initial}{gd_type}.h5"
+# surrogate_files = {
+#     r"FINO ($r = 50$)" : f"{folder}/inversion_history_gradient_JAC_50_{initial}{gd_type}.h5",
+#     r"FINO ($r = 200$)": f"{folder}/inversion_history_gradient_JAC_200_{initial}{gd_type}.h5",
+#     r"FINO ($r = 400$)": f"{folder}/inversion_history_gradient_JAC_400_{initial}{gd_type}.h5",
+#     "MSE-FNO"     : f"{folder}/inversion_history_gradient_MSE_{initial}{gd_type}.h5"
+# }
 surrogate_files = {
-    r"FINO ($r = 50$)" : f"{folder}/inversion_history_gradient_JAC_50_{initial}{gd_type}.h5",
-    r"FINO ($r = 200$)": f"{folder}/inversion_history_gradient_JAC_200_{initial}{gd_type}.h5",
-    r"FINO ($r = 400$)": f"{folder}/inversion_history_gradient_JAC_400_{initial}{gd_type}.h5",
-    "MSE-FNO"     : f"{folder}/inversion_history_gradient_MSE_{initial}{gd_type}.h5"
+        # r"FINO ($r = 50$)" : f"{folder}/inversion_history_gradient_NS_JAC_50_{initial}{gd_type}.h5",
+        # r"FINO ($r = 200$)": f"{folder}/inversion_history_gradient_NS_JAC_200_{initial}{gd_type}.h5",
+        r"FINO ($r = 400$)": f"{folder}/inversion_history_gradient_NS_JAC_400_{initial}{gd_type}.h5",
+        "MSE-FNO"     : f"{folder}/inversion_history_gradient_NS_MSE_{initial}{gd_type}_Devito.h5",
 }
 dataset_key = "g"
 sample_idx  = 0
@@ -59,10 +66,20 @@ for name, path in surrogate_files.items():
         n1  = np.linalg.norm(g_t)
         n2  = np.linalg.norm(g_s)
         cosines[t] = dot / (n1 * n2 + 1e-16)
-        rel2s[t]   = np.linalg.norm(g_s - g_t) / (n1 + 1e-16)
+        rel2s[t]   = np.linalg.norm(g_s.flatten() - g_t.flatten(), ord=2) #/ (n1 + 1e-16)
 
     cos_align[name] = cosines
     rel2_diff[name] = rel2s
+
+# Convert cosine alignment to angles (degrees), handling edge cases
+angles_deg = {}
+for name, cosines in cos_align.items():
+    # clip for numerical safety and map to [0, 180] degrees
+    clipped = np.clip(cosines, -1.0, 1.0)
+    theta = np.degrees(np.arccos(clipped))
+    # If either gradient norm was ~0, your cosines may be NaN/inf earlier; keep NaNs to avoid misleading values
+    angles_deg[name] = theta
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. SAVE CSVs
@@ -95,19 +112,42 @@ styles = {
 
 iters = np.arange(max_iter)
 
-# a) Cosine alignment
+# a) Angle alignment (degrees)
+# plt.figure(figsize=(7,4))
+# for name, thetas in angles_deg.items():
+#     plt.plot(iters, thetas, markevery=every, label=name, **styles[name])
+# plt.xlabel("Iteration", fontsize=14)
+# plt.ylabel(r'$\theta^{(i)}$ (deg)', fontsize=14)
+# plt.title("Angular Deviation in Gradient", fontweight='bold', fontsize=16)
+# plt.ylim(0, 30)  # angles live in [0, 180]
+# plt.legend(fontsize=14)
+# plt.grid(True, linestyle='-')
+# plt.tight_layout()
+# plt.savefig(os.path.join(dest_folder, f"gradient_angle_all_{expt_name}{gd_type}.png"), dpi=150)
+# plt.close()
+
 plt.figure(figsize=(7,4))
-for name, cosines in cos_align.items():
-    plt.semilogy(iters, cosines, markevery=every, label=name, **styles[name])
-plt.axhline(0, color='k', linestyle='--', linewidth=0.5)
+for name, thetas in angles_deg.items():
+    plt.plot(iters, thetas, markevery=every, label=name, **styles[name])
+
 plt.xlabel("Iteration", fontsize=14)
-plt.ylabel(r'$\cos\theta^{(i)}$', fontsize=14)
-plt.title(f"Gradient Alignment", fontweight='bold', fontsize=16)
+plt.ylabel(r'$\theta^{(i)}$ (deg)', fontsize=14)
+plt.title("Angular Deviation in Gradient", fontweight='bold', fontsize=16)
 plt.legend(fontsize=14)
-plt.grid(True, which='both', linestyle='-')
+plt.grid(True, linestyle='-')
+
+# add padding below 0
+ymin = -0.5   # or -1.0 for more space
+ymax = max(10, np.nanmax([v.max() for v in angles_deg.values()]) * 1.05)
+plt.ylim(ymin, ymax)
+
 plt.tight_layout()
-plt.savefig(os.path.join(dest_folder, f"gradient_alignment_all_{expt_name}{gd_type}.png"), dpi=150)
+plt.savefig(os.path.join(dest_folder, f"gradient_angle_all_{expt_name}{gd_type}.png"), dpi=150)
 plt.close()
+
+
+
+
 
 # b) Relative L2 difference
 plt.figure(figsize=(7,4))
@@ -123,3 +163,5 @@ plt.savefig(os.path.join(dest_folder, f"gradient_rel2diff_all_{expt_name}{gd_typ
 plt.close()
 
 print("Saved plots to", dest_folder)
+
+

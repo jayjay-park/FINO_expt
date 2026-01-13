@@ -3,6 +3,7 @@ import argparse
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor
+from pytorch_lightning.strategies import DDPStrategy
 from utils import (
     load_config, save_config, setup_logging, setup_neptune_logging,
     create_directories, log_config_to_file, set_seed, get_dataset, get_model
@@ -54,14 +55,6 @@ def main():
     val_loader = data_loader.get_dataloader(offset=config.training_settings.num_train, limit=config.training_settings.num_test, shuffle=config.training_settings.shuffle_test)
     # Set up loggers
     loggers = []
-    
-    # # TensorBoard logger
-    # tb_logger = TensorBoardLogger(
-    #     save_dir=directories['log_dir'],
-    #     name="tensorboard",
-    #     version=directories['experiment']
-    # )
-    # loggers.append(tb_logger)
     
     # Neptune logger
     if NEPTUNE_AVAILABLE and config.neptune.enabled:
@@ -138,9 +131,11 @@ def main():
         deterministic=True,
         check_val_every_n_epoch=config.visualization_settings.check_val_every_n_epoch,
         devices=config.training_settings.num_GPU,
-        strategy=config.training_settings.strategy,
+        # strategy=config.training_settings.strategy,
+        strategy=DDPStrategy(find_unused_parameters=True),
         accumulate_grad_batches=config.training_settings.accum_steps,
         enable_checkpointing=config.training_settings.enable_checkpointing,
+        precision=32
     )
     
     # Start training

@@ -11,6 +11,26 @@ if PROJECT_ROOT not in sys.path:
 from groundwater.groundwater.utils import GaussianRandomField, plot_fields
 from groundwater.groundwater.devito_op import GroundwaterEquation, GroundwaterModel
 
+def reconstruct_fourier_field(theta, nx=128, ny=128,
+                              ncmp=10, s=1.1, alpha=1.0, sigma=1.0,
+                              device="cpu"):
+    theta = theta.detach().cpu().numpy().reshape(-1)
+    x = np.linspace(0, 1, nx)
+    y = np.linspace(0, 1, ny)
+    X, Y = np.meshgrid(x, y, indexing="ij")
+
+    u = np.zeros_like(X)
+    idx = 0
+    for i in range(1, ncmp + 1):
+        for j in range(1, ncmp + 1):
+            lam = sigma * (alpha + np.pi**2 * (i**2 + j**2)) ** (-s / 2)
+            phi = np.cos(np.pi * (i - 0.5) * X) * np.cos(np.pi * (j - 0.5) * Y)
+            u += lam * theta[idx] * phi
+            idx += 1
+
+    u_torch = torch.tensor(u, dtype=torch.float32, device=device)
+    k_torch = torch.exp(u_torch)
+    return u_torch, k_torch
 
 class DarcySimulator(Simulator):
     def __init__(self, size=256, T=1.0, dtype=torch.float32):
@@ -25,19 +45,32 @@ class DarcySimulator(Simulator):
     def sample(self):
         # Step 1: Sample from Gaussian Random Field
         # grf = GaussianRandomField(2, self.size, alpha=35, tau=0.001, sigma=10000.0) #--- prev version
-        grf = GaussianRandomField(2, self.size, alpha=2, tau=3)
-        u_samples = grf.sample(1)
 
+        # grf = GaussianRandomField(2, self.size, alpha=2, tau=3)
+        # u_samples = grf.sample(1)
         # # Sample random fields
-        u_samples[u_samples>=0] = 0.9
-        u_samples[u_samples<0] = 0.1
+        # u_samples[u_samples>=0] = 0.9
+        # u_samples[u_samples<0] = 0.1
+
+        ncmp = 8
+        s = 1.
+        alpha = 1.
+        sigma = 1.5
+        # --- True coefficients (same as MATLAB: sin(i^2 + j^2))
+        i, j = np.meshgrid(np.arange(1, ncmp + 1), np.arange(1, ncmp + 1), indexing="ij")
+        theta_truth = torch.tensor(np.random.randn(ncmp**2).astype(np.float32))
+        theta_truth = torch.tensor(theta_truth)
+
+
+        # --- Construct true field
+        u_samples, k_truth = reconstruct_fourier_field(theta_truth, self.size, self.size, ncmp, s, alpha, sigma, self.device)
         
-        return torch.tensor(u_samples[0], dtype=self.dtype, device=self.device)
+        return torch.tensor(u_samples, dtype=self.dtype, device=self.device)
 
     def forward(self, u):
         print("We don't want to call forward")
-        # Step 3: Zero forcing term
-        f = torch.zeros((self.size, self.size), dtype=self.dtype, device=self.device)
+        # Step 3: One forcing term
+        f = torch.ones((self.size, self.size), dtype=self.dtype, device=self.device)
 
         # Step 4: Forward solve (batched or per sample)
         if u.ndim == 3:

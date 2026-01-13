@@ -1,3 +1,4 @@
+/baseline/
 /data_generation/src/img_2/
 /data_generation/src/img_3/
 /data_generation/src/img_8/
@@ -30,6 +31,9 @@ datasets/Observation_O.png
 train/rng_state_devito.pkl
 train/obs_*
 train/.nfs*
+datasets/Q_tilde_*
+vscode_*
+vmb_global_*
 
 # metadata
 train/output/
@@ -58,3 +62,13 @@ train/prior_*
 datasets/*.sbatch
 old_code/
 datasets/PINO_NS
+datasets/configs
+datasets/groundwater
+datasets/outs
+datasets/plot_data
+inv_Darcy/
+inv_NS/
+noise(0.01)_*
+past_1014/
+past_code/
+plot/

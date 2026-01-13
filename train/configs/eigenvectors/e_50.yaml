@@ -1,20 +1,21 @@
 base_config: ../darcy_default.yaml
 
 experiment:
-  name: "n=400_e=50_m=FNO_s=RFS_l=JAC"
+  name: "n=400_e=64_m=FNO_s=RFS_l=JAC"
   tags:
-    - "50 Eigenvector"
+    - "64 Eigenvector"
     - "400 samples"
     - "FNO"
     - "RFS"
     - "JAC"
 
 data_settings:
-  eigen_count: 50
+  eigen_count: 64
   batch_size: 50
 
 model_settings:
-  train_eigen_count: 50
+  train_eigen_count: 64
+  reg_param: 0.001 # prev 0.05
 
 training_settings:
   accum_steps: 1

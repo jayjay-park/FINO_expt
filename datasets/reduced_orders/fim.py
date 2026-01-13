@@ -29,7 +29,7 @@ class FIMReducedModel(ReducedModel):
             if self.simulator_type == "DARCY":
                 x = x.cpu().numpy()
                 # Forcing term (e.g., external influences) is initialized as zeros
-                f = np.zeros(x.shape)
+                f = np.ones(x.shape)
                 p_fwd = simulator.model.eval_fwd_op(f, x, return_array=False)
             
             Q = torch.zeros((simulator.domain, eigen_count))
@@ -68,13 +68,15 @@ class FIMReducedModel(ReducedModel):
         Run in a worker thread. Returns a flat gradient of shape (p,).
         """
         if simulator_type == "DARCY":
+            print("i", i)
             g = simulator.model.compute_gradient(x_np, probe_2d, p_fwd).reshape(-1)  # [d,d]
         else:
             print("i", i)
             g = vjp_func(probe_2d)[0].reshape(-1)
             simulator.plot_vorticity(g.detach().cpu().reshape(d, d), i)
             print("g", g.shape)
-        return g.detach().cpu().numpy()
+            g = g.detach().cpu().numpy()
+        return g
 
 
     def compute_score_matrix(self, simulator, x, L):
@@ -100,18 +102,17 @@ class FIMReducedModel(ReducedModel):
         x_np, p_fwd = None, None
         if self.simulator_type == "DARCY":
             x_np = x
-            f    = np.zeros_like(x_np)
+            f    = np.ones_like(x_np)
             p_fwd = simulator.model.eval_fwd_op(
                 f, x_np, simulator.T, return_array=False
             )
             # 4) prepare numpy probes for each thread
             probes = probe_flat.cpu().numpy().reshape(r, d, d)  # [r, d, d]
+            vjp_func = None
         else:
             simulator.plot_vorticity(x, -1)
             x_np = torch.tensor(x).cuda()#.clone()
-            print("before")
             out, vjp_func = torch.func.vjp(simulator, x_np)
-            print("after")
             simulator.plot_vorticity(out.detach().cpu(), -3)
             probes = probe_flat.reshape(r, d, d)
 

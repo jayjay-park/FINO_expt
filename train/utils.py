@@ -42,6 +42,29 @@ def get_model(model_type: str, model_settings: DictConfig) -> str:
             weight_decay=model_settings.weight_decay,
             # ckpt_path=model_settings.ckpt_path,
         )
+    elif model_type == "VMB":
+        from models.vmb import VMBModel
+        model = VMBModel(
+            in_channels=model_settings.in_channels,
+            out_channels=model_settings.out_channels,
+            decoder_layer_size=model_settings.decoder_layer_size,
+            num_fno_layers=model_settings.num_fno_layers,
+            num_fno_modes=model_settings.num_fno_modes,
+            padding=model_settings.padding,
+            dimension=model_settings.dimension,
+            latent_channels=model_settings.latent_channels,
+            loss_type=model_settings.loss_type,
+            train_eigen_count=model_settings.train_eigen_count,
+            reg_param=model_settings.reg_param,
+            scale_factor=model_settings.scale_factor,
+            learning_rate=model_settings.learning_rate,
+            weight_decay=model_settings.weight_decay,
+            # ckpt_path=model_settings.ckpt_path,
+        )
+        for name, param in model.named_parameters():
+            if param.grad is None:
+                print(f"Unused parameter: {name}")
+
         return model
     else:
         raise ValueError(f"Invalid model type: {model_type}")
@@ -60,6 +83,7 @@ def get_dataset(dataset_type: str, data_settings: DictConfig) -> str:
             sample_directories=data_settings.sample_directories,
             batch_size=data_settings.batch_size,
         )
+        return data_loader
     elif dataset_type == "DARCY":
         from data_type.ns import NSDataLoader
         data_loader = NSDataLoader(
@@ -70,6 +94,18 @@ def get_dataset(dataset_type: str, data_settings: DictConfig) -> str:
             batch_size=data_settings.batch_size,
         )
         print("2", data_settings.sample_directories)
+        return data_loader
+    elif dataset_type == "VMB":
+        from data_type.ns import VMBDataLoader
+        norm_path = "/net/slimdata/jayjaydata2/DeFINO_Richard/train/vmb_global_max.npz"
+
+        data_loader = VMBDataLoader(
+            nx=data_settings.nx,
+            ny=data_settings.ny,
+            sample_directories=data_settings.sample_directories,
+            norm_path = norm_path,
+            batch_size=data_settings.batch_size,
+        )
         return data_loader
     else:
         raise ValueError(f"Invalid dataset type: {dataset_type}")

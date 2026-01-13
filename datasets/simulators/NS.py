@@ -2,6 +2,10 @@ import torch
 import math
 import matplotlib.pyplot as plt
 import numpy as np
+import sys
+import os
+
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from PINO_NS import NavierStokes2d, GaussianRF   # import the real solver
 
 class NavierStokesSimulator(torch.nn.Module):
